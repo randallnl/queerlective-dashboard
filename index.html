@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CoLab Member Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Main navigation">
+        <a class="brand" href="#overview" aria-label="CoLab member portal">
+          <span class="brand-mark">Q</span>
+          <span>
+            <strong>CoLab</strong>
+            <small>Member Portal</small>
+          </span>
+        </a>
+        <nav class="nav-list">
+          <a href="#overview" class="active" data-section-link="overview">
+            <span>Overview</span>
+          </a>
+          <a href="#shifts" data-section-link="shifts">
+            <span>Shifts</span>
+          </a>
+          <a href="#calendar" data-section-link="calendar">
+            <span>Calendar</span>
+          </a>
+          <a href="#announcements" data-section-link="announcements">
+            <span>Votes</span>
+          </a>
+          <a href="#payments" data-section-link="payments">
+            <span>Dues</span>
+          </a>
+          <a href="#resources" data-section-link="resources">
+            <span>Resources</span>
+          </a>
+        </nav>
+        <div class="member-card">
+          <span class="avatar">AR</span>
+          <div>
+            <strong>Ari Rivera</strong>
+            <small>Studio member since 2024</small>
+          </div>
+        </div>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Wednesday, July 1</p>
+            <h1>Welcome back, Ari</h1>
+          </div>
+          <button class="primary-action" type="button" data-open-shift-modal>
+            Sign up for a shift
+          </button>
+        </header>
+
+        <section class="hero" id="overview" aria-labelledby="overview-title">
+          <img src="assets/colab-studio-banner.png" alt="" />
+          <div class="hero-copy">
+            <p class="eyebrow">CoLab shared studio</p>
+            <h2 id="overview-title">Your month at a glance</h2>
+            <p>
+              Keep track of studio commitments, upcoming events, community
+              decisions, and dues in one member-friendly place.
+            </p>
+          </div>
+        </section>
+
+        <section class="metric-grid" aria-label="Member summary">
+          <article>
+            <span class="metric-label">Next shift</span>
+            <strong id="next-shift">Loading</strong>
+            <small>Open studio host</small>
+          </article>
+          <article>
+            <span class="metric-label">Dues status</span>
+            <strong>Current</strong>
+            <small>Next charge Jul 15</small>
+          </article>
+          <article>
+            <span class="metric-label">Votes open</span>
+            <strong id="vote-count">0</strong>
+            <small>Community decisions</small>
+          </article>
+          <article>
+            <span class="metric-label">Hours this month</span>
+            <strong>7.5</strong>
+            <small>Volunteer + hosting</small>
+          </article>
+        </section>
+
+        <section class="content-grid">
+          <section class="panel" id="shifts" aria-labelledby="shifts-title">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Studio coverage</p>
+                <h2 id="shifts-title">Available shifts</h2>
+              </div>
+              <button class="secondary-action" type="button" data-open-shift-modal>
+                Browse all
+              </button>
+            </div>
+            <div class="shift-list" id="shift-list"></div>
+          </section>
+
+          <section class="panel" id="calendar" aria-labelledby="calendar-title">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">What is happening</p>
+                <h2 id="calendar-title">Calendar</h2>
+              </div>
+              <select id="calendar-filter" aria-label="Filter calendar">
+                <option value="all">All events</option>
+                <option value="workshop">Workshops</option>
+                <option value="member">Member use</option>
+                <option value="maintenance">Maintenance</option>
+              </select>
+            </div>
+            <div class="event-list" id="event-list"></div>
+          </section>
+        </section>
+
+        <section class="content-grid lower-grid">
+          <section
+            class="panel"
+            id="announcements"
+            aria-labelledby="announcements-title"
+          >
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Community decisions</p>
+                <h2 id="announcements-title">Announcements + votes</h2>
+              </div>
+            </div>
+            <div class="announcement-list" id="announcement-list"></div>
+          </section>
+
+          <section class="panel" id="payments" aria-labelledby="payments-title">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Membership</p>
+                <h2 id="payments-title">Dues history</h2>
+              </div>
+              <span class="status-pill">Autopay on</span>
+            </div>
+            <div class="payment-summary">
+              <div>
+                <span>Monthly dues</span>
+                <strong>$45.00</strong>
+              </div>
+              <div>
+                <span>Next payment</span>
+                <strong>Jul 15</strong>
+              </div>
+            </div>
+            <div class="payment-list" id="payment-list"></div>
+          </section>
+        </section>
+
+        <section class="panel resources-panel" id="resources">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Need something</p>
+              <h2>Member resources</h2>
+            </div>
+          </div>
+          <div class="resource-grid">
+            <a href="#" class="resource-link">
+              <strong>Tool checkout</strong>
+              <span>Reserve equipment and report repair needs.</span>
+            </a>
+            <a href="#" class="resource-link">
+              <strong>Studio guidelines</strong>
+              <span>Access shared expectations and safety notes.</span>
+            </a>
+            <a href="#" class="resource-link">
+              <strong>Member support</strong>
+              <span>Ask for access help, dues questions, or project support.</span>
+            </a>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="shift-modal">
+      <form method="dialog" class="modal-card">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Shift signup</p>
+            <h2>Choose a studio shift</h2>
+          </div>
+          <button class="icon-button" type="submit" aria-label="Close">×</button>
+        </div>
+        <div id="modal-shift-list" class="modal-shift-list"></div>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
