@@ -1,29 +1,9 @@
-const shifts = [
-  {
-    id: "shift-01",
-    title: "Open studio host",
-    date: "Wed Jul 3",
-    time: "5:30 PM - 8:30 PM",
-    spots: 1,
-    tags: ["front desk", "closing"],
-  },
-  {
-    id: "shift-02",
-    title: "Tool orientation assistant",
-    date: "Sat Jul 6",
-    time: "10:00 AM - 1:00 PM",
-    spots: 2,
-    tags: ["workshop", "member support"],
-  },
-  {
-    id: "shift-03",
-    title: "Supply reset",
-    date: "Tue Jul 9",
-    time: "6:00 PM - 7:30 PM",
-    spots: 3,
-    tags: ["organizing", "quick shift"],
-  },
-];
+const state = {
+  shifts: [],
+  signedUpShifts: new Set(),
+  memberVotes: new Set(),
+  shiftSource: "loading",
+};
 
 const events = [
   {
@@ -79,9 +59,6 @@ const payments = [
   { date: "Apr 15, 2026", label: "Monthly dues", amount: "$45.00", status: "Paid" },
 ];
 
-const signedUpShifts = new Set(["shift-01"]);
-const memberVotes = new Set();
-
 const shiftList = document.querySelector("#shift-list");
 const modalShiftList = document.querySelector("#modal-shift-list");
 const eventList = document.querySelector("#event-list");
@@ -91,35 +68,89 @@ const voteCount = document.querySelector("#vote-count");
 const nextShift = document.querySelector("#next-shift");
 const calendarFilter = document.querySelector("#calendar-filter");
 const shiftModal = document.querySelector("#shift-modal");
+const memberIdInput = document.querySelector("#member-id-input");
+const shiftSourceNote = document.querySelector("#shift-source-note");
 
-function tagMarkup(tags) {
-  return tags.map((tag) => `<span class="tag">${tag}</span>`).join("");
+function tagMarkup(tags, extra = "") {
+  return tags.map((tag) => `<span class="tag ${extra}">${tag}</span>`).join("");
+}
+
+function shiftButtonLabel(shift, isSignedUp) {
+  if (isSignedUp) return "Signed up";
+  if (shift.isCovered) return "Covered";
+  return "Sign up";
+}
+
+function shiftMarkup(shift) {
+  const isSignedUp = state.signedUpShifts.has(shift.id);
+  const disabled = shift.isCovered && !isSignedUp;
+  const statusTag = shift.isCovered
+    ? `<span class="tag covered">${shift.coverageStatus || "Covered"}</span>`
+    : `<span class="tag">${shift.coverageStatus || "Open"}</span>`;
+
+  return `
+    <article class="shift-item">
+      <div>
+        <p class="shift-title">${shift.title}</p>
+        <span class="shift-meta">${shift.date} · ${shift.time} · ${shift.month}</span>
+        <div class="tag-row">
+          ${tagMarkup(shift.tags || [])}
+          ${statusTag}
+        </div>
+      </div>
+      <button
+        class="shift-button"
+        type="button"
+        data-shift-id="${shift.id}"
+        ${disabled ? "disabled" : ""}
+      >
+        ${shiftButtonLabel(shift, isSignedUp)}
+      </button>
+    </article>
+  `;
 }
 
 function renderShifts() {
-  const markup = shifts
-    .map((shift) => {
-      const isSignedUp = signedUpShifts.has(shift.id);
-      return `
-        <article class="shift-item">
-          <div>
-            <p class="shift-title">${shift.title}</p>
-            <span class="shift-meta">${shift.date} · ${shift.time} · ${shift.spots} open spot${shift.spots === 1 ? "" : "s"}</span>
-            <div class="tag-row">${tagMarkup(shift.tags)}</div>
-          </div>
-          <button class="shift-button" type="button" data-shift-id="${shift.id}">
-            ${isSignedUp ? "Signed up" : "Sign up"}
-          </button>
-        </article>
-      `;
-    })
-    .join("");
+  if (!state.shifts.length) {
+    shiftList.innerHTML = `<p class="form-note">No open CoLab shifts are available right now.</p>`;
+    modalShiftList.innerHTML = shiftList.innerHTML;
+    nextShift.textContent = "No shift yet";
+    return;
+  }
 
+  const markup = state.shifts.map(shiftMarkup).join("");
   shiftList.innerHTML = markup;
   modalShiftList.innerHTML = markup;
 
-  const firstShift = shifts.find((shift) => signedUpShifts.has(shift.id));
-  nextShift.textContent = firstShift ? `${firstShift.date}` : "No shift yet";
+  const firstShift = state.shifts.find((shift) => state.signedUpShifts.has(shift.id));
+  nextShift.textContent = firstShift ? firstShift.date : "No shift yet";
+
+  if (shiftSourceNote) {
+    shiftSourceNote.textContent =
+      state.shiftSource === "monday"
+        ? "Loaded from the CoLab Calendar monday board."
+        : "Using preview data until monday is available.";
+  }
+}
+
+async function loadShifts() {
+  shiftList.innerHTML = `<p class="form-note">Loading CoLab shifts...</p>`;
+  modalShiftList.innerHTML = shiftList.innerHTML;
+
+  try {
+    const response = await fetch("/api/shifts");
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to load shifts.");
+
+    state.shifts = payload.shifts || [];
+    state.shiftSource = payload.source || "monday";
+  } catch (error) {
+    state.shifts = [];
+    state.shiftSource = "error";
+    shiftSourceNote.textContent = error.message;
+  }
+
+  renderShifts();
 }
 
 function renderEvents(filter = "all") {
@@ -145,7 +176,7 @@ function renderAnnouncements() {
   voteCount.textContent = announcements.length;
   announcementList.innerHTML = announcements
     .map((announcement) => {
-      const selected = memberVotes.has(announcement.id);
+      const selected = state.memberVotes.has(announcement.id);
       return `
         <article class="announcement-item">
           <div class="vote-row">
@@ -185,18 +216,49 @@ function renderPayments() {
     .join("");
 }
 
-function handleShiftClick(event) {
-  const button = event.target.closest("[data-shift-id]");
-  if (!button) return;
+async function signUpForShift(shiftId, button) {
+  const memberId = memberIdInput.value.trim();
+  if (!memberId) {
+    memberIdInput.focus();
+    shiftSourceNote.textContent = "Enter your CoLab member ID before choosing a shift.";
+    return;
+  }
 
-  const shiftId = button.dataset.shiftId;
-  if (signedUpShifts.has(shiftId)) {
-    signedUpShifts.delete(shiftId);
-  } else {
-    signedUpShifts.add(shiftId);
+  button.disabled = true;
+  button.textContent = "Signing up...";
+
+  try {
+    const response = await fetch("/api/shifts/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ shiftId, memberId }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Shift signup failed.");
+
+    state.signedUpShifts.add(shiftId);
+    state.shifts = state.shifts.map((shift) =>
+      shift.id === shiftId
+        ? {
+            ...shift,
+            memberId,
+            coverageStatus: "Covered",
+            isCovered: true,
+          }
+        : shift,
+    );
+    shiftSourceNote.textContent = "Shift signup saved.";
+  } catch (error) {
+    shiftSourceNote.textContent = error.message;
   }
 
   renderShifts();
+}
+
+function handleShiftClick(event) {
+  const button = event.target.closest("[data-shift-id]");
+  if (!button) return;
+  signUpForShift(button.dataset.shiftId, button);
 }
 
 function handleVoteClick(event) {
@@ -204,10 +266,10 @@ function handleVoteClick(event) {
   if (!button) return;
 
   const voteId = button.dataset.voteId;
-  if (memberVotes.has(voteId)) {
-    memberVotes.delete(voteId);
+  if (state.memberVotes.has(voteId)) {
+    state.memberVotes.delete(voteId);
   } else {
-    memberVotes.add(voteId);
+    state.memberVotes.add(voteId);
   }
 
   renderAnnouncements();
@@ -235,7 +297,7 @@ document.querySelectorAll("[data-section-link]").forEach((link) => {
   });
 });
 
-renderShifts();
+loadShifts();
 renderEvents();
 renderAnnouncements();
 renderPayments();

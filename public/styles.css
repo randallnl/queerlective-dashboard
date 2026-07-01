@@ -83,6 +83,7 @@ select {
 .payment-list small,
 .shift-meta,
 .event-meta,
+.form-note,
 .resource-link span {
   display: block;
   color: var(--muted);
@@ -169,6 +170,11 @@ main {
 .shift-button {
   background: var(--teal);
   color: #fff;
+}
+
+.shift-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .primary-action:hover,
@@ -322,6 +328,34 @@ main {
   font-size: 0.78rem;
   font-weight: 800;
   padding: 5px 9px;
+}
+
+.tag.covered {
+  background: #f0eee5;
+  color: #70633f;
+}
+
+.field-label {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.field-label input {
+  min-height: 44px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font: inherit;
+  padding: 0 12px;
+}
+
+.form-note {
+  margin: 10px 0 0;
 }
 
 .event-item {
