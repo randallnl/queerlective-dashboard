@@ -125,13 +125,29 @@ function weekdayIndex(dateValue) {
   return date.getUTCDay();
 }
 
+async function mondayToken(env) {
+  const binding = env.MONDAY_API_TOKEN;
+
+  if (typeof binding === "string") {
+    return binding;
+  }
+
+  if (binding && typeof binding.get === "function") {
+    return binding.get();
+  }
+
+  return "";
+}
+
 async function mondayGraphQL(env, query, variables, options = {}) {
-  if (!env.MONDAY_API_TOKEN) {
+  const token = await mondayToken(env);
+
+  if (!token) {
     throw new Error("Missing MONDAY_API_TOKEN");
   }
 
   const headers = {
-    Authorization: env.MONDAY_API_TOKEN,
+    Authorization: token,
     "Content-Type": "application/json",
   };
 
