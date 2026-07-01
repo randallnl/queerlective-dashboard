@@ -8,18 +8,14 @@ const apiRoutes = {
 };
 
 export default {
-  async fetch(request, env) {
+  async fetch(request) {
     const url = new URL(request.url);
     const route = apiRoutes[url.pathname];
 
     if (route) {
-      return route(request, env);
+      return route(request);
     }
 
-    if (url.pathname.startsWith("/api/")) {
-      return Response.json({ error: "Not found" }, { status: 404 });
-    }
-
-    return env.ASSETS.fetch(request);
+    return Response.json({ error: "Not found" }, { status: 404 });
   },
 };
