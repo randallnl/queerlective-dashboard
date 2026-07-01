@@ -35,6 +35,9 @@
           <a href="#announcements" data-section-link="announcements">
             <span>Votes</span>
           </a>
+          <a href="#activity" data-section-link="activity">
+            <span>Activity</span>
+          </a>
           <a href="#payments" data-section-link="payments">
             <span>Dues</span>
           </a>
@@ -99,9 +102,9 @@
             <small>Community decisions</small>
           </article>
           <article>
-            <span class="metric-label">Hours this month</span>
-            <strong>7.5</strong>
-            <small>Volunteer + hosting</small>
+            <span class="metric-label">Activity this month</span>
+            <strong id="activity-count">0</strong>
+            <small id="activity-latest">Loading activity</small>
           </article>
         </section>
 
@@ -150,6 +153,21 @@
             </div>
             <div class="announcement-list" id="announcement-list"></div>
           </section>
+
+          <section class="panel" id="activity" aria-labelledby="activity-title">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Member activity</p>
+                <h2 id="activity-title">Activity summary</h2>
+              </div>
+              <span class="status-pill" id="activity-source">Loading</span>
+            </div>
+            <div class="activity-breakdown" id="activity-breakdown"></div>
+            <div class="activity-list" id="activity-list"></div>
+          </section>
+        </section>
+
+        <section class="content-grid lower-grid">
 
           <section class="panel" id="payments" aria-labelledby="payments-title">
             <div class="section-heading">

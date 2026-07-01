@@ -2,10 +2,18 @@ const state = {
   members: [],
   selectedMemberId: localStorage.getItem("colabSelectedMemberId") || "",
   shifts: [],
+  activities: [],
+  activitySummary: {
+    total: 0,
+    thisMonth: 0,
+    latestDate: "No activity yet",
+    byType: [],
+  },
   signedUpShifts: new Set(),
   memberVotes: new Set(),
   shiftSource: "loading",
   memberSource: "loading",
+  activitySource: "loading",
 };
 
 const events = [
@@ -80,6 +88,11 @@ const sidebarMemberName = document.querySelector("#sidebar-member-name");
 const sidebarMemberDetail = document.querySelector("#sidebar-member-detail");
 const membershipType = document.querySelector("#membership-type");
 const memberEmail = document.querySelector("#member-email");
+const activityCount = document.querySelector("#activity-count");
+const activityLatest = document.querySelector("#activity-latest");
+const activitySource = document.querySelector("#activity-source");
+const activityBreakdown = document.querySelector("#activity-breakdown");
+const activityList = document.querySelector("#activity-list");
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -160,6 +173,7 @@ function renderMemberView() {
     membershipType.textContent = "Not selected";
     memberEmail.textContent = "Choose a member to view their portal.";
     memberIdInput.value = "";
+    renderActivity();
     return;
   }
 
@@ -261,6 +275,111 @@ async function loadShifts() {
   }
 
   renderShifts();
+}
+
+function renderActivity() {
+  const summary = state.activitySummary;
+  const sourceLabel =
+    state.activitySource === "monday"
+      ? "Monday"
+      : state.activitySource === "mock"
+        ? "Preview"
+        : state.activitySource === "error"
+          ? "Offline"
+          : "Loading";
+
+  activityCount.textContent = summary.thisMonth ?? 0;
+  activityLatest.textContent =
+    summary.total > 0 ? `Latest: ${summary.latestDate}` : "No activity yet";
+  activitySource.textContent = sourceLabel;
+
+  if (!selectedMember()) {
+    activityBreakdown.innerHTML = "";
+    activityList.innerHTML = `<p class="form-note">Choose a member to view activity.</p>`;
+    return;
+  }
+
+  if (!state.activities.length) {
+    activityBreakdown.innerHTML = "";
+    activityList.innerHTML = `<p class="form-note">No activity has been logged for this member yet.</p>`;
+    return;
+  }
+
+  activityBreakdown.innerHTML = summary.byType
+    .map(
+      (item) => `
+        <span class="activity-pill">
+          ${escapeHtml(item.type)}
+          <strong>${item.count}</strong>
+        </span>
+      `,
+    )
+    .join("");
+
+  activityList.innerHTML = state.activities
+    .slice(0, 5)
+    .map(
+      (activity) => `
+        <article class="activity-item">
+          <div>
+            <p class="activity-title">${escapeHtml(activity.title || activity.activityType)}</p>
+            <span class="event-meta">${escapeHtml(activity.displayDate)} · ${escapeHtml(activity.activityType)}</span>
+            ${
+              activity.description
+                ? `<p class="activity-description">${escapeHtml(activity.description)}</p>`
+                : ""
+            }
+          </div>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+async function loadActivity() {
+  const member = selectedMember();
+
+  if (!member?.memberId) {
+    state.activities = [];
+    state.activitySummary = {
+      total: 0,
+      thisMonth: 0,
+      latestDate: "No activity yet",
+      byType: [],
+    };
+    state.activitySource = "loading";
+    renderActivity();
+    return;
+  }
+
+  activityList.innerHTML = `<p class="form-note">Loading member activity...</p>`;
+
+  try {
+    const response = await fetch(`/api/activity?memberId=${encodeURIComponent(member.memberId)}`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to load activity.");
+
+    state.activities = payload.activities || [];
+    state.activitySummary = payload.summary || {
+      total: state.activities.length,
+      thisMonth: 0,
+      latestDate: "No activity yet",
+      byType: [],
+    };
+    state.activitySource = payload.source || "monday";
+  } catch (error) {
+    state.activities = [];
+    state.activitySummary = {
+      total: 0,
+      thisMonth: 0,
+      latestDate: "No activity yet",
+      byType: [],
+    };
+    state.activitySource = "error";
+    activityList.innerHTML = `<p class="form-note">${escapeHtml(error.message)}</p>`;
+  }
+
+  renderActivity();
 }
 
 function renderEvents(filter = "all") {
@@ -395,6 +514,7 @@ memberSelect.addEventListener("change", (event) => {
   localStorage.setItem("colabSelectedMemberId", state.selectedMemberId);
   renderMemberView();
   renderShifts();
+  loadActivity();
 });
 
 document.addEventListener("click", (event) => {
@@ -415,8 +535,13 @@ document.querySelectorAll("[data-section-link]").forEach((link) => {
   });
 });
 
-loadMembers();
-loadShifts();
+async function init() {
+  await loadMembers();
+  await loadActivity();
+  loadShifts();
+}
+
+init();
 renderEvents();
 renderAnnouncements();
 renderPayments();

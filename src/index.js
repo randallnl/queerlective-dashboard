@@ -3,6 +3,7 @@ const MONDAY_API_URL = "https://api.monday.com/v2";
 const BOARDS = {
   colabCalendar: 8374554428,
   colabMembers: 8402413272,
+  activityFeedback: 18408298018,
 };
 
 const COLUMNS = {
@@ -26,6 +27,12 @@ const COLUMNS = {
     signUpDate: "date_1_mkmvqa90",
     memberId: "pulse_id_mm34sv67",
     otherEmails: "text_mm358g6e",
+  },
+  activity: {
+    activityType: "single_selectis1ajb9",
+    submitDate: "date_mm2mqnq2",
+    description: "long_text3mhw34i5",
+    person: "text_mm34jrzj",
   },
 };
 
@@ -77,6 +84,17 @@ const MOCK_MEMBERS = [
   },
 ];
 
+const MOCK_ACTIVITY = [
+  {
+    id: "mock-activity-01",
+    title: "Hosted open studio",
+    activityType: "Shift",
+    submitDate: "2026-07-01",
+    description: "Covered an evening studio host shift.",
+    person: "Ari R. | Member ID: mock-member-01",
+  },
+];
+
 function json(data, init = {}) {
   return Response.json(data, {
     ...init,
@@ -123,6 +141,25 @@ function weekdayIndex(dateValue) {
   if (Number.isNaN(date.getTime())) return null;
 
   return date.getUTCDay();
+}
+
+function formatActivityDate(dateValue) {
+  if (!dateValue) return "No date";
+
+  const date = new Date(`${dateValue}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return dateValue;
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+function memberIdFromPerson(personText) {
+  const match = personText.match(/Member ID:\s*([^|\s]+)/i);
+  return match?.[1]?.trim() || "";
 }
 
 async function mondayToken(env) {
@@ -223,6 +260,28 @@ function normalizeMember(item) {
   };
 }
 
+function normalizeActivity(item) {
+  const submitDateColumn = getColumnValue(
+    item.column_values,
+    COLUMNS.activity.submitDate,
+  );
+  const submitDate =
+    submitDateColumn?.date || getColumnText(item.column_values, COLUMNS.activity.submitDate);
+  const person = getColumnText(item.column_values, COLUMNS.activity.person);
+
+  return {
+    id: item.id,
+    title: item.name,
+    activityType:
+      getColumnText(item.column_values, COLUMNS.activity.activityType) || "Activity",
+    submitDate,
+    displayDate: formatActivityDate(submitDate),
+    description: getColumnText(item.column_values, COLUMNS.activity.description),
+    person,
+    personMemberId: memberIdFromPerson(person),
+  };
+}
+
 function publicMember(member) {
   return {
     itemId: member.itemId,
@@ -311,6 +370,79 @@ async function listMembers(env) {
     .map(normalizeMember)
     .filter((member) => member.memberId)
     .sort((a, b) => a.preferredName.localeCompare(b.preferredName));
+}
+
+function summarizeActivities(activities) {
+  const now = new Date();
+  const currentMonth = now.toISOString().slice(0, 7);
+  const byType = activities.reduce((counts, activity) => {
+    const type = activity.activityType || "Activity";
+    counts[type] = (counts[type] || 0) + 1;
+    return counts;
+  }, {});
+  const thisMonth = activities.filter((activity) =>
+    activity.submitDate?.startsWith(currentMonth),
+  ).length;
+
+  return {
+    total: activities.length,
+    thisMonth,
+    latestDate: activities[0]?.displayDate || "No activity yet",
+    byType: Object.entries(byType)
+      .map(([type, count]) => ({ type, count }))
+      .sort((a, b) => b.count - a.count || a.type.localeCompare(b.type)),
+  };
+}
+
+async function listActivity(env, memberId) {
+  const cleanMemberId = String(memberId || "").trim();
+
+  if (!cleanMemberId) {
+    return { activities: [], summary: summarizeActivities([]) };
+  }
+
+  const data = await mondayGraphQL(
+    env,
+    `query CoLabActivity($boardIds: [ID!]) {
+      boards(ids: $boardIds) {
+        items_page(limit: 200) {
+          items {
+            id
+            name
+            column_values(ids: [
+              "${COLUMNS.activity.activityType}",
+              "${COLUMNS.activity.submitDate}",
+              "${COLUMNS.activity.description}",
+              "${COLUMNS.activity.person}"
+            ]) {
+              id
+              text
+              value
+            }
+          }
+        }
+      }
+    }`,
+    { boardIds: [BOARDS.activityFeedback] },
+  );
+
+  const items = data.boards?.[0]?.items_page?.items || [];
+  const activities = items
+    .map(normalizeActivity)
+    .filter((activity) => {
+      const personMember = activity.personMemberId;
+
+      return (
+        personMember === cleanMemberId ||
+        activity.person.includes(`Member ID: ${cleanMemberId}`)
+      );
+    })
+    .sort((a, b) => (b.submitDate || "").localeCompare(a.submitDate || ""));
+
+  return {
+    activities: activities.slice(0, 12),
+    summary: summarizeActivities(activities),
+  };
 }
 
 async function signUpForShift(request, env) {
@@ -416,6 +548,33 @@ const apiRoutes = {
         source: "mock",
         warning: error.message,
         members: MOCK_MEMBERS.map(publicMember),
+      });
+    }
+  },
+  "GET /api/activity": async (request, env) => {
+    const url = new URL(request.url);
+    const memberId = url.searchParams.get("memberId")?.trim();
+
+    try {
+      const activity = await listActivity(env, memberId);
+      return json({ source: "monday", ...activity });
+    } catch (error) {
+      const mockActivities = MOCK_ACTIVITY.filter(
+        (activity) =>
+          !memberId ||
+          memberIdFromPerson(activity.person) === memberId ||
+          activity.person.includes(`Member ID: ${memberId}`),
+      ).map((activity) => ({
+        ...activity,
+        displayDate: formatActivityDate(activity.submitDate),
+        personMemberId: memberIdFromPerson(activity.person),
+      }));
+
+      return json({
+        source: "mock",
+        warning: error.message,
+        activities: mockActivities,
+        summary: summarizeActivities(mockActivities),
       });
     }
   },

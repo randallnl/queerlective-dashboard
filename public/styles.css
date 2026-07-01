@@ -302,6 +302,7 @@ main {
 .shift-list,
 .event-list,
 .announcement-list,
+.activity-list,
 .payment-list,
 .modal-shift-list {
   display: grid;
@@ -312,6 +313,7 @@ main {
 .shift-item,
 .event-item,
 .announcement-item,
+.activity-item,
 .payment-item {
   display: grid;
   gap: 10px;
@@ -327,6 +329,7 @@ main {
 
 .shift-title,
 .event-title,
+.activity-title,
 .announcement-title {
   margin: 0 0 4px;
   font-weight: 800;
@@ -463,6 +466,42 @@ select {
   display: block;
   margin-top: 4px;
   font-size: 1.35rem;
+}
+
+.activity-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.activity-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  background: var(--rose);
+  color: #843925;
+  font-size: 0.82rem;
+  font-weight: 800;
+  padding: 7px 10px;
+}
+
+.activity-pill strong {
+  display: grid;
+  min-width: 24px;
+  min-height: 24px;
+  place-items: center;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.activity-description {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
 }
 
 .resource-grid {
