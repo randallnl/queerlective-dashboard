@@ -51,6 +51,7 @@ const COLUMNS = {
     comment: "long_texta8lzlxn7",
     motion: "text_mm4vp4ny",
     memberId: "text_mm4vff42",
+    voteId: "text_mm4ve8bt",
   },
 };
 
@@ -125,6 +126,7 @@ const MOCK_VOTES = [
     closesLabel: "Auto-approves Aug 18, 2026",
     status: "Open",
     responseCounts: { Approve: 2, "Don't Approve(With Comment)": 0 },
+    responseTotal: 2,
     memberResponse: "",
     memberComment: "",
     requiresComment: true,
@@ -359,6 +361,7 @@ function normalizeVoteResponse(item) {
     comment: getColumnText(item.column_values, COLUMNS.votes.comment),
     question: getColumnText(item.column_values, COLUMNS.votes.motion),
     memberId: getColumnText(item.column_values, COLUMNS.votes.memberId),
+    voteId: getColumnText(item.column_values, COLUMNS.votes.voteId),
   };
 }
 
@@ -531,7 +534,9 @@ function aggregateVotes(motions, responses, memberId) {
 
   return motions.map((motion) => {
     const motionResponses = responses.filter(
-      (response) => response.question === motion.question,
+      (response) =>
+        response.voteId === motion.id ||
+        (!response.voteId && response.question === motion.question),
     );
     const memberVote = motionResponses.find(
       (response) => response.memberId === cleanMemberId,
@@ -596,7 +601,8 @@ async function listVotes(env, memberId) {
                 "${COLUMNS.votes.response}",
                 "${COLUMNS.votes.comment}",
                 "${COLUMNS.votes.motion}",
-                "${COLUMNS.votes.memberId}"
+                "${COLUMNS.votes.memberId}",
+                "${COLUMNS.votes.voteId}"
               ]) {
                 id
                 text
@@ -622,15 +628,16 @@ async function listVotes(env, memberId) {
 }
 
 async function submitVote(request, env) {
-  const { motion, response, comment, memberId } = await request.json();
+  const { voteId, motion, response, comment, memberId } = await request.json();
+  const cleanVoteId = String(voteId || "").trim();
   const cleanMotion = String(motion || "").trim();
   const cleanResponse = String(response || "").trim();
   const cleanComment = String(comment || "").trim();
   const cleanMemberId = String(memberId || "").trim();
 
-  if (!cleanMotion || !cleanResponse || !cleanMemberId) {
+  if (!cleanVoteId || !cleanMotion || !cleanResponse || !cleanMemberId) {
     return json(
-      { error: "motion, response, and memberId are required." },
+      { error: "voteId, motion, response, and memberId are required." },
       { status: 400 },
     );
   }
@@ -646,6 +653,48 @@ async function submitVote(request, env) {
     );
   }
 
+  const existingData = await mondayGraphQL(
+    env,
+    `query ExistingCommunityVotes($boardIds: [ID!]) {
+      boards(ids: $boardIds) {
+        items_page(limit: 500) {
+          items {
+            id
+            column_values(ids: [
+              "${COLUMNS.votes.motion}",
+              "${COLUMNS.votes.memberId}",
+              "${COLUMNS.votes.voteId}"
+            ]) {
+              id
+              text
+              value
+            }
+          }
+        }
+      }
+    }`,
+    { boardIds: [BOARDS.voteLog] },
+  );
+  const existingResponses = (
+    existingData.boards?.[0]?.items_page?.items || []
+  ).map(normalizeVoteResponse);
+  const duplicate = existingResponses.find(
+    (vote) =>
+      vote.memberId === cleanMemberId &&
+      (vote.voteId === cleanVoteId ||
+        (!vote.voteId && vote.question === cleanMotion)),
+  );
+
+  if (duplicate) {
+    return json(
+      {
+        error: "This member has already voted on this question.",
+        existingVoteId: duplicate.id,
+      },
+      { status: 409 },
+    );
+  }
+
   const members = await listMembers(env);
   const member = members.find((item) => item.memberId === cleanMemberId);
   const person = member ? memberDisplayForVote(member) : `Member ID: ${cleanMemberId}`;
@@ -654,6 +703,7 @@ async function submitVote(request, env) {
     [COLUMNS.votes.comment]: cleanComment,
     [COLUMNS.votes.motion]: cleanMotion,
     [COLUMNS.votes.memberId]: cleanMemberId,
+    [COLUMNS.votes.voteId]: cleanVoteId,
   };
 
   const data = await mondayGraphQL(
@@ -678,6 +728,7 @@ async function submitVote(request, env) {
   return json({
     ok: true,
     voteId: data.create_item?.id,
+    motionId: cleanVoteId,
     motion: cleanMotion,
     response: cleanResponse,
     memberId: cleanMemberId,

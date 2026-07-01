@@ -404,7 +404,8 @@ function renderVotes() {
       const memberResponse = vote.memberResponse || "";
       const approved = vote.status === "Approved";
       const needsComment = memberResponse === "Don't Approve(With Comment)";
-      const disabled = approved ? "disabled" : "";
+      const memberHasVoted = Boolean(memberResponse);
+      const disabled = approved || memberHasVoted ? "disabled" : "";
 
       return `
         <article class="announcement-item">
@@ -415,6 +416,11 @@ function renderVotes() {
             </div>
             <span class="status-pill">${escapeHtml(vote.responseTotal || 0)} responses</span>
           </div>
+          ${
+            memberHasVoted
+              ? `<p class="form-note">You voted: ${escapeHtml(memberResponse)}</p>`
+              : ""
+          }
           ${
             vote.details
               ? `<p class="vote-details">${escapeHtml(vote.details)}</p>`
@@ -428,6 +434,7 @@ function renderVotes() {
             <button
               class="vote-button"
               type="button"
+              data-vote-id="${escapeHtml(vote.id)}"
               data-vote-motion="${escapeHtml(vote.question)}"
               data-vote-response="Approve"
               aria-pressed="${memberResponse === "Approve"}"
@@ -438,6 +445,7 @@ function renderVotes() {
             <button
               class="vote-button"
               type="button"
+              data-vote-id="${escapeHtml(vote.id)}"
               data-vote-motion="${escapeHtml(vote.question)}"
               data-vote-response="Don't Approve(With Comment)"
               aria-pressed="${needsComment}"
@@ -449,7 +457,7 @@ function renderVotes() {
           <label class="vote-comment">
             Comment
             <textarea
-              data-vote-comment="${escapeHtml(vote.question)}"
+              data-vote-comment="${escapeHtml(vote.id)}"
               ${disabled}
             >${escapeHtml(vote.memberComment || "")}</textarea>
           </label>
@@ -559,10 +567,11 @@ async function handleVoteClick(event) {
   }
 
   const motion = communityVoteButton.dataset.voteMotion;
+  const voteId = communityVoteButton.dataset.voteId;
   const responseValue = communityVoteButton.dataset.voteResponse;
   const commentInput = Array.from(
     document.querySelectorAll("[data-vote-comment]"),
-  ).find((input) => input.dataset.voteComment === motion);
+  ).find((input) => input.dataset.voteComment === voteId);
   const comment = commentInput?.value.trim() || "";
 
   if (responseValue === "Don't Approve(With Comment)" && !comment) {
@@ -578,6 +587,7 @@ async function handleVoteClick(event) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        voteId,
         motion,
         response: responseValue,
         comment,
