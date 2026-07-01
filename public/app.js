@@ -106,6 +106,51 @@ function tagMarkup(tags, extra = "") {
     .join("");
 }
 
+function sixWeeksFromToday() {
+  const end = new Date();
+  end.setDate(end.getDate() + 42);
+  return end.toISOString().slice(0, 10);
+}
+
+function isWithinNextSixWeeks(dateValue) {
+  if (!dateValue) return true;
+  return dateValue <= sixWeeksFromToday();
+}
+
+function openShiftsNextSixWeeks() {
+  return state.shifts.filter(
+    (shift) => !shift.isCovered && isWithinNextSixWeeks(shift.dateValue),
+  );
+}
+
+function filledShiftsForCalendar() {
+  return state.shifts.filter((shift) => shift.isCovered);
+}
+
+function calendarDateParts(event) {
+  if (event.dateValue) {
+    const date = new Date(`${event.dateValue}T00:00:00Z`);
+    if (!Number.isNaN(date.getTime())) {
+      return {
+        day: new Intl.DateTimeFormat("en-US", {
+          day: "numeric",
+          timeZone: "UTC",
+        }).format(date),
+        month: new Intl.DateTimeFormat("en-US", {
+          month: "short",
+          timeZone: "UTC",
+        }).format(date),
+      };
+    }
+  }
+
+  const parts = String(event.date || "").split(/\s+/).filter(Boolean);
+  return {
+    month: parts.at(-2) || "",
+    day: parts.at(-1) || "",
+  };
+}
+
 function shiftButtonLabel(shift, isSignedUp) {
   if (isSignedUp) return "Signed up";
   if (shift.isCovered) return "Covered";
@@ -144,6 +189,20 @@ function shiftMarkup(shift) {
       </button>
     </article>
   `;
+}
+
+function updateNextShiftMetric() {
+  const firstSignedUpShift = state.shifts.find((shift) =>
+    state.signedUpShifts.has(shift.id),
+  );
+  const member = selectedMember();
+  const memberShift = state.shifts.find(
+    (shift) => member?.memberId && shift.memberId === member.memberId,
+  );
+  const firstOpenShift = openShiftsNextSixWeeks()[0];
+
+  nextShift.textContent =
+    memberShift?.date || firstSignedUpShift?.date || firstOpenShift?.date || "No shift yet";
 }
 
 function renderMemberView() {
@@ -199,28 +258,32 @@ function renderMemberSelect() {
 }
 
 function renderShifts() {
-  if (!state.shifts.length) {
+  const openShifts = openShiftsNextSixWeeks();
+  updateNextShiftMetric();
+
+  if (!openShifts.length) {
     shiftList.innerHTML = `<p class="form-note">No open CoLab shifts are available right now.</p>`;
     modalShiftList.innerHTML = shiftList.innerHTML;
-    nextShift.textContent = "No shift yet";
     return;
   }
 
-  const markup = state.shifts.map(shiftMarkup).join("");
-  shiftList.innerHTML = markup;
-  modalShiftList.innerHTML = markup;
-
-  const firstShift = state.shifts.find((shift) => state.signedUpShifts.has(shift.id));
-  const member = selectedMember();
-  const memberShift = state.shifts.find(
-    (shift) => member?.memberId && shift.memberId === member.memberId,
-  );
-  nextShift.textContent = memberShift?.date || firstShift?.date || "No shift yet";
+  const previewShifts = openShifts.slice(0, 2);
+  shiftList.innerHTML = `
+    ${previewShifts.map(shiftMarkup).join("")}
+    ${
+      openShifts.length > previewShifts.length
+        ? `<button class="secondary-action list-action" type="button" data-open-shift-modal>
+            See all ${openShifts.length} open shifts
+          </button>`
+        : ""
+    }
+  `;
+  modalShiftList.innerHTML = openShifts.map(shiftMarkup).join("");
 
   if (shiftSourceNote) {
     shiftSourceNote.textContent =
       state.shiftSource === "monday"
-        ? "Loaded from the CoLab Calendar monday board."
+        ? "Showing open CoLab Calendar shifts for the next 6 weeks."
         : "Using preview data until monday is available.";
   }
 }
@@ -260,6 +323,7 @@ async function loadShifts() {
   }
 
   renderShifts();
+  renderEvents(calendarFilter.value);
 }
 
 function renderActivity() {
@@ -368,10 +432,26 @@ async function loadActivity() {
 }
 
 function renderEvents(filter = "all") {
-  const visibleEvents = events.filter((event) => filter === "all" || event.type === filter);
+  const filledShiftEvents = filledShiftsForCalendar().map((shift) => {
+    const member = state.members.find((item) => item.memberId === shift.memberId);
+    const isSelectedMember =
+      selectedMember()?.memberId && shift.memberId === selectedMember().memberId;
+
+    return {
+      title: isSelectedMember ? "Your CoLab shift" : "Filled CoLab shift",
+      date: shift.date,
+      dateValue: shift.dateValue,
+      time: shift.time,
+      type: "shift",
+      meta: `${member?.preferredName || shift.memberId || "Member"} is covering ${shift.title}.`,
+    };
+  });
+  const visibleEvents = [...events, ...filledShiftEvents].filter(
+    (event) => filter === "all" || event.type === filter,
+  ).sort((a, b) => (a.dateValue || a.date || "").localeCompare(b.dateValue || b.date || ""));
   eventList.innerHTML = visibleEvents
     .map((event) => {
-      const [month, day] = event.date.split(" ");
+      const { month, day } = calendarDateParts(event);
       return `
         <article class="event-item">
           <div class="date-badge"><span>${day}</span><small>${month}</small></div>
@@ -548,6 +628,7 @@ async function signUpForShift(shiftId, button) {
   }
 
   renderShifts();
+  renderEvents(calendarFilter.value);
 }
 
 function handleShiftClick(event) {
@@ -605,15 +686,12 @@ async function handleVoteClick(event) {
   }
 }
 
-document.querySelectorAll("[data-open-shift-modal]").forEach((button) => {
-  button.addEventListener("click", () => shiftModal.showModal());
-});
-
 memberSelect.addEventListener("change", (event) => {
   state.selectedMemberId = event.target.value;
   localStorage.setItem("colabSelectedMemberId", state.selectedMemberId);
   renderMemberView();
   renderShifts();
+  renderEvents(calendarFilter.value);
   loadActivity();
   loadVotes();
 });
@@ -621,6 +699,9 @@ memberSelect.addEventListener("change", (event) => {
 document.addEventListener("click", (event) => {
   handleShiftClick(event);
   handleVoteClick(event);
+  if (event.target.closest("[data-open-shift-modal]")) {
+    if (!shiftModal.open) shiftModal.showModal();
+  }
 });
 
 calendarFilter.addEventListener("change", (event) => {
