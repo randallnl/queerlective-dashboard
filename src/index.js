@@ -292,6 +292,7 @@ function normalizeShift(parentItem, subitem) {
 
   return {
     id: subitem.id,
+    boardId: subitem.board?.id || "",
     parentId: parentItem.id,
     month: parentItem.name,
     title: name,
@@ -413,6 +414,9 @@ async function listShifts(env) {
             name
             subitems {
               id
+              board {
+                id
+              }
               name
               column_values(ids: ["${COLUMNS.shifts.date}", "${COLUMNS.shifts.memberId}", "${COLUMNS.shifts.person}", "${COLUMNS.shifts.coverageStatus}"]) {
                 id
@@ -762,8 +766,9 @@ async function submitVote(request, env) {
 }
 
 async function signUpForShift(request, env) {
-  const { shiftId, memberId } = await request.json();
+  const { shiftId, shiftBoardId, memberId } = await request.json();
   const cleanShiftId = String(shiftId || "").trim();
+  const cleanShiftBoardId = String(shiftBoardId || "").trim();
   const cleanMemberId = String(memberId || "").trim();
 
   if (!cleanShiftId || !cleanMemberId) {
@@ -773,6 +778,7 @@ async function signUpForShift(request, env) {
     );
   }
 
+  const boardId = cleanShiftBoardId || BOARDS.colabCalendar;
   const members = await listMembers(env);
   const member = members.find((item) => item.memberId === cleanMemberId);
   const person = memberDisplayForShift(member, cleanMemberId);
@@ -806,7 +812,7 @@ async function signUpForShift(request, env) {
       }
     }`,
     {
-      boardId: BOARDS.colabCalendar,
+      boardId,
       itemId: cleanShiftId,
       memberColumn: COLUMNS.shifts.memberId,
       personColumn: COLUMNS.shifts.person,
@@ -821,6 +827,7 @@ async function signUpForShift(request, env) {
   return json({
     ok: true,
     shiftId: cleanShiftId,
+    shiftBoardId: boardId,
     memberId: cleanMemberId,
     person,
     coveredBy: shiftCoveredBy(person, cleanMemberId),

@@ -191,6 +191,7 @@ function shiftMarkup(shift) {
         class="shift-button"
         type="button"
         data-shift-id="${shift.id}"
+        data-shift-board-id="${escapeHtml(shift.boardId || "")}"
         ${disabled ? "disabled" : ""}
       >
         ${shiftButtonLabel(shift, isSignedUp)}
@@ -600,7 +601,7 @@ function renderPayments() {
     .join("");
 }
 
-async function signUpForShift(shiftId, button) {
+async function signUpForShift(shiftId, shiftBoardId, button) {
   const member = selectedMember();
   const memberId = member?.memberId || memberIdInput.value.trim();
   if (!memberId) {
@@ -616,7 +617,7 @@ async function signUpForShift(shiftId, button) {
     const response = await fetch("/api/shifts/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ shiftId, memberId }),
+      body: JSON.stringify({ shiftId, shiftBoardId, memberId }),
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Shift signup failed.");
@@ -650,7 +651,7 @@ async function signUpForShift(shiftId, button) {
 function handleShiftClick(event) {
   const button = event.target.closest("[data-shift-id]");
   if (!button) return;
-  signUpForShift(button.dataset.shiftId, button);
+  signUpForShift(button.dataset.shiftId, button.dataset.shiftBoardId, button);
 }
 
 async function handleVoteClick(event) {
