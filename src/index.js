@@ -58,6 +58,25 @@ const MOCK_SHIFTS = [
   },
 ];
 
+const MOCK_MEMBERS = [
+  {
+    itemId: "mock-member-01",
+    name: "Ari Rivera",
+    preferredName: "Ari",
+    membershipType: "Studio Member",
+    email: "ari@example.com",
+    phone: "",
+    memberId: "mock-member-01",
+    signUpDate: "2024-01-15",
+    businessName: "",
+    website: "",
+    socialMedia: "",
+    creativeGroundLink: "",
+    artistDescription: "",
+    otherEmails: "",
+  },
+];
+
 function json(data, init = {}) {
   return Response.json(data, {
     ...init,
@@ -163,6 +182,42 @@ function normalizeShift(parentItem, subitem) {
   };
 }
 
+function normalizeMember(item) {
+  return {
+    itemId: item.id,
+    name: item.name,
+    preferredName: getColumnText(item.column_values, COLUMNS.members.preferredName) || item.name,
+    membershipType: getColumnText(item.column_values, COLUMNS.members.membershipType),
+    email: getColumnText(item.column_values, COLUMNS.members.email),
+    phone: getColumnText(item.column_values, COLUMNS.members.phone),
+    memberId: getColumnText(item.column_values, COLUMNS.members.memberId) || item.id,
+    signUpDate: getColumnText(item.column_values, COLUMNS.members.signUpDate),
+    businessName: getColumnText(item.column_values, COLUMNS.members.businessName),
+    website: getColumnText(item.column_values, COLUMNS.members.website),
+    socialMedia: getColumnText(item.column_values, COLUMNS.members.socialMedia),
+    creativeGroundLink: getColumnText(
+      item.column_values,
+      COLUMNS.members.creativeGroundLink,
+    ),
+    artistDescription: getColumnText(
+      item.column_values,
+      COLUMNS.members.artistDescription,
+    ),
+    otherEmails: getColumnText(item.column_values, COLUMNS.members.otherEmails),
+  };
+}
+
+function publicMember(member) {
+  return {
+    itemId: member.itemId,
+    name: member.name,
+    preferredName: member.preferredName,
+    membershipType: member.membershipType,
+    memberId: member.memberId,
+    signUpDate: member.signUpDate,
+  };
+}
+
 async function listShifts(env) {
   const data = await mondayGraphQL(
     env,
@@ -199,6 +254,47 @@ async function listShifts(env) {
     .filter((shift) => !shift.dateValue || shift.dateValue >= todayValue)
     .sort((a, b) => (a.dateValue || "9999-12-31").localeCompare(b.dateValue || "9999-12-31"))
     .slice(0, 40);
+}
+
+async function listMembers(env) {
+  const data = await mondayGraphQL(
+    env,
+    `query CoLabMembers($boardIds: [ID!]) {
+      boards(ids: $boardIds) {
+        items_page(limit: 300) {
+          items {
+            id
+            name
+            column_values(ids: [
+              "${COLUMNS.members.preferredName}",
+              "${COLUMNS.members.membershipType}",
+              "${COLUMNS.members.email}",
+              "${COLUMNS.members.phone}",
+              "${COLUMNS.members.businessName}",
+              "${COLUMNS.members.website}",
+              "${COLUMNS.members.socialMedia}",
+              "${COLUMNS.members.creativeGroundLink}",
+              "${COLUMNS.members.artistDescription}",
+              "${COLUMNS.members.signUpDate}",
+              "${COLUMNS.members.memberId}",
+              "${COLUMNS.members.otherEmails}"
+            ]) {
+              id
+              text
+              value
+            }
+          }
+        }
+      }
+    }`,
+    { boardIds: [BOARDS.colabMembers] },
+  );
+
+  const members = data.boards?.[0]?.items_page?.items || [];
+  return members
+    .map(normalizeMember)
+    .filter((member) => member.memberId)
+    .sort((a, b) => a.preferredName.localeCompare(b.preferredName));
 }
 
 async function signUpForShift(request, env) {
@@ -256,47 +352,11 @@ async function findMember(request, env) {
     return json({ error: "Provide email or memberId." }, { status: 400 });
   }
 
-  const data = await mondayGraphQL(
-    env,
-    `query CoLabMembers($boardIds: [ID!]) {
-      boards(ids: $boardIds) {
-        items_page(limit: 200) {
-          items {
-            id
-            name
-            column_values(ids: [
-              "${COLUMNS.members.preferredName}",
-              "${COLUMNS.members.membershipType}",
-              "${COLUMNS.members.email}",
-              "${COLUMNS.members.phone}",
-              "${COLUMNS.members.businessName}",
-              "${COLUMNS.members.website}",
-              "${COLUMNS.members.socialMedia}",
-              "${COLUMNS.members.creativeGroundLink}",
-              "${COLUMNS.members.artistDescription}",
-              "${COLUMNS.members.signUpDate}",
-              "${COLUMNS.members.memberId}",
-              "${COLUMNS.members.otherEmails}"
-            ]) {
-              id
-              text
-              value
-            }
-          }
-        }
-      }
-    }`,
-    { boardIds: [BOARDS.colabMembers] },
-  );
-
-  const members = data.boards?.[0]?.items_page?.items || [];
+  const members = await listMembers(env);
   const match = members.find((item) => {
-    const primaryEmail = getColumnText(item.column_values, COLUMNS.members.email).toLowerCase();
-    const otherEmails = getColumnText(
-      item.column_values,
-      COLUMNS.members.otherEmails,
-    ).toLowerCase();
-    const itemMemberId = getColumnText(item.column_values, COLUMNS.members.memberId);
+    const primaryEmail = item.email.toLowerCase();
+    const otherEmails = item.otherEmails.toLowerCase();
+    const itemMemberId = item.memberId;
 
     return (
       (email && (primaryEmail === email || otherEmails.includes(email))) ||
@@ -309,27 +369,7 @@ async function findMember(request, env) {
   }
 
   return json({
-    member: {
-      itemId: match.id,
-      name: match.name,
-      preferredName: getColumnText(match.column_values, COLUMNS.members.preferredName),
-      membershipType: getColumnText(match.column_values, COLUMNS.members.membershipType),
-      email: getColumnText(match.column_values, COLUMNS.members.email),
-      phone: getColumnText(match.column_values, COLUMNS.members.phone),
-      memberId: getColumnText(match.column_values, COLUMNS.members.memberId),
-      signUpDate: getColumnText(match.column_values, COLUMNS.members.signUpDate),
-      businessName: getColumnText(match.column_values, COLUMNS.members.businessName),
-      website: getColumnText(match.column_values, COLUMNS.members.website),
-      socialMedia: getColumnText(match.column_values, COLUMNS.members.socialMedia),
-      creativeGroundLink: getColumnText(
-        match.column_values,
-        COLUMNS.members.creativeGroundLink,
-      ),
-      artistDescription: getColumnText(
-        match.column_values,
-        COLUMNS.members.artistDescription,
-      ),
-    },
+    member: match,
   });
 }
 
@@ -348,6 +388,18 @@ const apiRoutes = {
         source: "mock",
         warning: error.message,
         shifts: MOCK_SHIFTS,
+      });
+    }
+  },
+  "GET /api/members": async (_request, env) => {
+    try {
+      const members = await listMembers(env);
+      return json({ source: "monday", members: members.map(publicMember) });
+    } catch (error) {
+      return json({
+        source: "mock",
+        warning: error.message,
+        members: MOCK_MEMBERS.map(publicMember),
       });
     }
   },

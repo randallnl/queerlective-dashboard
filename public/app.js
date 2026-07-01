@@ -1,8 +1,11 @@
 const state = {
+  members: [],
+  selectedMemberId: localStorage.getItem("colabSelectedMemberId") || "",
   shifts: [],
   signedUpShifts: new Set(),
   memberVotes: new Set(),
   shiftSource: "loading",
+  memberSource: "loading",
 };
 
 const events = [
@@ -70,9 +73,40 @@ const calendarFilter = document.querySelector("#calendar-filter");
 const shiftModal = document.querySelector("#shift-modal");
 const memberIdInput = document.querySelector("#member-id-input");
 const shiftSourceNote = document.querySelector("#shift-source-note");
+const memberSelect = document.querySelector("#member-select");
+const welcomeHeading = document.querySelector("#welcome-heading");
+const memberAvatar = document.querySelector("#member-avatar");
+const sidebarMemberName = document.querySelector("#sidebar-member-name");
+const sidebarMemberDetail = document.querySelector("#sidebar-member-detail");
+const membershipType = document.querySelector("#membership-type");
+const memberEmail = document.querySelector("#member-email");
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function selectedMember() {
+  return state.members.find((member) => member.memberId === state.selectedMemberId);
+}
+
+function initialsFor(name) {
+  return (name || "CoLab")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join("");
+}
 
 function tagMarkup(tags, extra = "") {
-  return tags.map((tag) => `<span class="tag ${extra}">${tag}</span>`).join("");
+  return tags
+    .map((tag) => `<span class="tag ${extra}">${escapeHtml(tag)}</span>`)
+    .join("");
 }
 
 function shiftButtonLabel(shift, isSignedUp) {
@@ -82,17 +116,22 @@ function shiftButtonLabel(shift, isSignedUp) {
 }
 
 function shiftMarkup(shift) {
-  const isSignedUp = state.signedUpShifts.has(shift.id);
+  const currentMember = selectedMember();
+  const isSignedUp =
+    state.signedUpShifts.has(shift.id) ||
+    Boolean(currentMember?.memberId && shift.memberId === currentMember.memberId);
   const disabled = shift.isCovered && !isSignedUp;
   const statusTag = shift.isCovered
-    ? `<span class="tag covered">${shift.coverageStatus || "Covered"}</span>`
-    : `<span class="tag">${shift.coverageStatus || "Open"}</span>`;
+    ? `<span class="tag covered">${escapeHtml(
+        isSignedUp ? "Your shift" : shift.coverageStatus || "Covered",
+      )}</span>`
+    : `<span class="tag">${escapeHtml(shift.coverageStatus || "Open")}</span>`;
 
   return `
     <article class="shift-item">
       <div>
-        <p class="shift-title">${shift.title}</p>
-        <span class="shift-meta">${shift.date} · ${shift.time} · ${shift.month}</span>
+        <p class="shift-title">${escapeHtml(shift.title)}</p>
+        <span class="shift-meta">${escapeHtml(shift.date)} · ${escapeHtml(shift.time)} · ${escapeHtml(shift.month)}</span>
         <div class="tag-row">
           ${tagMarkup(shift.tags || [])}
           ${statusTag}
@@ -110,6 +149,56 @@ function shiftMarkup(shift) {
   `;
 }
 
+function renderMemberView() {
+  const member = selectedMember();
+
+  if (!member) {
+    welcomeHeading.textContent = "Welcome back";
+    memberAvatar.textContent = "--";
+    sidebarMemberName.textContent = "No member selected";
+    sidebarMemberDetail.textContent = "Choose a member";
+    membershipType.textContent = "Not selected";
+    memberEmail.textContent = "Choose a member to view their portal.";
+    memberIdInput.value = "";
+    return;
+  }
+
+  const displayName = member.preferredName || member.name;
+  welcomeHeading.textContent = `Welcome back, ${displayName}`;
+  memberAvatar.textContent = initialsFor(displayName);
+  sidebarMemberName.textContent = displayName;
+  sidebarMemberDetail.textContent = member.membershipType || "CoLab member";
+  membershipType.textContent = member.membershipType || "Member";
+  memberEmail.textContent = `Member ID ${member.memberId}`;
+  memberIdInput.value = member.memberId;
+}
+
+function renderMemberSelect() {
+  if (!state.members.length) {
+    memberSelect.innerHTML = `<option value="">No members found</option>`;
+    memberSelect.disabled = true;
+    renderMemberView();
+    return;
+  }
+
+  memberSelect.disabled = false;
+  memberSelect.innerHTML = state.members
+    .map((member) => {
+      const displayName = member.preferredName || member.name;
+      return `<option value="${escapeHtml(member.memberId)}">${escapeHtml(displayName)}</option>`;
+    })
+    .join("");
+
+  if (!state.selectedMemberId || !state.members.some((member) => member.memberId === state.selectedMemberId)) {
+    state.selectedMemberId = state.members[0].memberId;
+  }
+
+  memberSelect.value = state.selectedMemberId;
+  localStorage.setItem("colabSelectedMemberId", state.selectedMemberId);
+  renderMemberView();
+  if (state.shifts.length) renderShifts();
+}
+
 function renderShifts() {
   if (!state.shifts.length) {
     shiftList.innerHTML = `<p class="form-note">No open CoLab shifts are available right now.</p>`;
@@ -123,7 +212,11 @@ function renderShifts() {
   modalShiftList.innerHTML = markup;
 
   const firstShift = state.shifts.find((shift) => state.signedUpShifts.has(shift.id));
-  nextShift.textContent = firstShift ? firstShift.date : "No shift yet";
+  const member = selectedMember();
+  const memberShift = state.shifts.find(
+    (shift) => member?.memberId && shift.memberId === member.memberId,
+  );
+  nextShift.textContent = memberShift?.date || firstShift?.date || "No shift yet";
 
   if (shiftSourceNote) {
     shiftSourceNote.textContent =
@@ -131,6 +224,23 @@ function renderShifts() {
         ? "Loaded from the CoLab Calendar monday board."
         : "Using preview data until monday is available.";
   }
+}
+
+async function loadMembers() {
+  try {
+    const response = await fetch("/api/members");
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to load members.");
+
+    state.members = payload.members || [];
+    state.memberSource = payload.source || "monday";
+  } catch (error) {
+    state.members = [];
+    state.memberSource = "error";
+    shiftSourceNote.textContent = error.message;
+  }
+
+  renderMemberSelect();
 }
 
 async function loadShifts() {
@@ -217,10 +327,11 @@ function renderPayments() {
 }
 
 async function signUpForShift(shiftId, button) {
-  const memberId = memberIdInput.value.trim();
+  const member = selectedMember();
+  const memberId = member?.memberId || memberIdInput.value.trim();
   if (!memberId) {
-    memberIdInput.focus();
-    shiftSourceNote.textContent = "Enter your CoLab member ID before choosing a shift.";
+    memberSelect.focus();
+    shiftSourceNote.textContent = "Choose a member before signing up for a shift.";
     return;
   }
 
@@ -279,6 +390,13 @@ document.querySelectorAll("[data-open-shift-modal]").forEach((button) => {
   button.addEventListener("click", () => shiftModal.showModal());
 });
 
+memberSelect.addEventListener("change", (event) => {
+  state.selectedMemberId = event.target.value;
+  localStorage.setItem("colabSelectedMemberId", state.selectedMemberId);
+  renderMemberView();
+  renderShifts();
+});
+
 document.addEventListener("click", (event) => {
   handleShiftClick(event);
   handleVoteClick(event);
@@ -297,6 +415,7 @@ document.querySelectorAll("[data-section-link]").forEach((link) => {
   });
 });
 
+loadMembers();
 loadShifts();
 renderEvents();
 renderAnnouncements();

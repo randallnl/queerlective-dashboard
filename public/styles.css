@@ -134,6 +134,25 @@ main {
   gap: 16px;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+}
+
+.compact-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.compact-field select {
+  min-width: 240px;
+}
+
 .topbar h1,
 .section-heading h2,
 .hero h2 {
@@ -354,6 +373,11 @@ main {
   padding: 0 12px;
 }
 
+.field-label input[readonly] {
+  background: #f8f7f2;
+  color: var(--muted);
+}
+
 .form-note {
   margin: 10px 0 0;
 }
@@ -524,6 +548,7 @@ dialog::backdrop {
 
   .topbar,
   .section-heading,
+  .topbar-actions,
   .shift-item,
   .vote-row,
   .payment-item,

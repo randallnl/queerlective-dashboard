@@ -43,10 +43,10 @@
           </a>
         </nav>
         <div class="member-card">
-          <span class="avatar">AR</span>
+          <span class="avatar" id="member-avatar">--</span>
           <div>
-            <strong>Ari Rivera</strong>
-            <small>Studio member since 2024</small>
+            <strong id="sidebar-member-name">Loading member</strong>
+            <small id="sidebar-member-detail">CoLab member</small>
           </div>
         </div>
       </aside>
@@ -55,11 +55,19 @@
         <header class="topbar">
           <div>
             <p class="eyebrow">Wednesday, July 1</p>
-            <h1>Welcome back, Ari</h1>
+            <h1 id="welcome-heading">Welcome back</h1>
           </div>
-          <button class="primary-action" type="button" data-open-shift-modal>
-            Sign up for a shift
-          </button>
+          <div class="topbar-actions">
+            <label class="compact-field" for="member-select">
+              View as
+              <select id="member-select" aria-label="View dashboard as member">
+                <option>Loading members</option>
+              </select>
+            </label>
+            <button class="primary-action" type="button" data-open-shift-modal>
+              Sign up for a shift
+            </button>
+          </div>
         </header>
 
         <section class="hero" id="overview" aria-labelledby="overview-title">
@@ -82,8 +90,8 @@
           </article>
           <article>
             <span class="metric-label">Dues status</span>
-            <strong>Current</strong>
-            <small>Next charge Jul 15</small>
+            <strong id="membership-type">Loading</strong>
+            <small id="member-email">Member profile</small>
           </article>
           <article>
             <span class="metric-label">Votes open</span>
@@ -206,6 +214,7 @@
             name="memberId"
             autocomplete="off"
             placeholder="Enter your CoLab member ID"
+            readonly
           />
         </label>
         <p class="form-note" id="shift-source-note"></p>
