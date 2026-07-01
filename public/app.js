@@ -100,6 +100,14 @@ function initialsFor(name) {
     .join("");
 }
 
+function memberNameWithLastInitial(member) {
+  const name = member?.preferredName || member?.name || "Member";
+  const parts = name.split(/\s+/).filter(Boolean);
+  const firstName = parts[0] || "Member";
+  const lastInitial = parts.length > 1 ? `${parts.at(-1)[0].toUpperCase()}.` : "";
+  return `${firstName}${lastInitial ? ` ${lastInitial}` : ""}`;
+}
+
 function tagMarkup(tags, extra = "") {
   return tags
     .map((tag) => `<span class="tag ${extra}">${escapeHtml(tag)}</span>`)
@@ -436,6 +444,8 @@ function renderEvents(filter = "all") {
     const member = state.members.find((item) => item.memberId === shift.memberId);
     const isSelectedMember =
       selectedMember()?.memberId && shift.memberId === selectedMember().memberId;
+    const coveredBy =
+      shift.coveredBy || (member ? memberNameWithLastInitial(member) : shift.memberId || "Member");
 
     return {
       title: isSelectedMember ? "Your CoLab shift" : "Filled CoLab shift",
@@ -443,7 +453,7 @@ function renderEvents(filter = "all") {
       dateValue: shift.dateValue,
       time: shift.time,
       type: "shift",
-      meta: `${member?.preferredName || shift.memberId || "Member"} is covering ${shift.title}.`,
+      meta: `${coveredBy} is covering ${shift.title}.`,
     };
   });
   const visibleEvents = [...events, ...filledShiftEvents].filter(
@@ -611,24 +621,30 @@ async function signUpForShift(shiftId, button) {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Shift signup failed.");
 
+    const signedUpShift = state.shifts.find((shift) => shift.id === shiftId);
     state.signedUpShifts.add(shiftId);
     state.shifts = state.shifts.map((shift) =>
       shift.id === shiftId
         ? {
             ...shift,
             memberId,
+            person: payload.person || `${memberNameWithLastInitial(member)} | ${memberId}`,
+            coveredBy: payload.coveredBy || memberNameWithLastInitial(member),
             coverageStatus: "Covered",
             isCovered: true,
           }
         : shift,
     );
-    shiftSourceNote.textContent = "Shift signup saved.";
+    renderShifts();
+    renderEvents(calendarFilter.value);
+    shiftSourceNote.textContent = `Confirmed: ${payload.coveredBy || memberNameWithLastInitial(member)} is covering ${signedUpShift?.date || "this shift"}.`;
+    return;
   } catch (error) {
+    renderShifts();
+    renderEvents(calendarFilter.value);
     shiftSourceNote.textContent = error.message;
+    return;
   }
-
-  renderShifts();
-  renderEvents(calendarFilter.value);
 }
 
 function handleShiftClick(event) {

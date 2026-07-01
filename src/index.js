@@ -22,6 +22,7 @@ const COLUMNS = {
   shifts: {
     date: "date0",
     memberId: "text_mm35f0vb",
+    person: "text_mm4vxh9t",
     coverageStatus: "color_mkw122gj",
   },
   members: {
@@ -65,6 +66,7 @@ const MOCK_SHIFTS = [
     dateValue: "2026-07-08",
     time: "6:00 PM - 8:00 PM",
     memberId: "",
+    person: "",
     coverageStatus: "Open",
     isCovered: false,
     tags: ["weekday", "studio coverage"],
@@ -78,6 +80,7 @@ const MOCK_SHIFTS = [
     dateValue: "2026-07-12",
     time: "2:00 PM - 4:00 PM",
     memberId: "",
+    person: "",
     coverageStatus: "Open",
     isCovered: false,
     tags: ["sunday", "studio coverage"],
@@ -208,6 +211,26 @@ function memberDisplayForVote(member) {
   return `${firstName}${lastInitial ? ` ${lastInitial}` : ""} | Member ID: ${member.memberId}`;
 }
 
+function memberNameWithLastInitial(member) {
+  const name = member?.preferredName || member?.name || "Member";
+  const parts = name.split(/\s+/).filter(Boolean);
+  const firstName = parts[0] || "Member";
+  const lastInitial = parts.length > 1 ? `${parts.at(-1)[0].toUpperCase()}.` : "";
+  return `${firstName}${lastInitial ? ` ${lastInitial}` : ""}`;
+}
+
+function memberDisplayForShift(member, memberId) {
+  return `${memberNameWithLastInitial(member)} | ${member?.memberId || memberId}`;
+}
+
+function shiftCoveredBy(person, memberId) {
+  if (person) {
+    return person.split("|")[0].trim();
+  }
+
+  return memberId || "";
+}
+
 async function mondayToken(env) {
   const binding = env.MONDAY_API_TOKEN;
 
@@ -255,6 +278,7 @@ async function mondayGraphQL(env, query, variables, options = {}) {
 
 function normalizeShift(parentItem, subitem) {
   const memberId = getColumnText(subitem.column_values, COLUMNS.shifts.memberId);
+  const person = getColumnText(subitem.column_values, COLUMNS.shifts.person);
   const coverageStatus = getColumnText(
     subitem.column_values,
     COLUMNS.shifts.coverageStatus,
@@ -275,8 +299,10 @@ function normalizeShift(parentItem, subitem) {
     dateValue,
     time: isSunday ? "2:00 PM - 4:00 PM" : "6:00 PM - 8:00 PM",
     memberId,
+    person,
+    coveredBy: shiftCoveredBy(person, memberId),
     coverageStatus: coverageStatus || "Open",
-    isCovered: Boolean(memberId) || /covered|filled|confirmed/i.test(coverageStatus),
+    isCovered: Boolean(memberId || person) || /covered|filled|confirmed/i.test(coverageStatus),
     tags: [dayTag, "studio coverage"],
   };
 }
@@ -388,7 +414,7 @@ async function listShifts(env) {
             subitems {
               id
               name
-              column_values(ids: ["${COLUMNS.shifts.date}", "${COLUMNS.shifts.memberId}", "${COLUMNS.shifts.coverageStatus}"]) {
+              column_values(ids: ["${COLUMNS.shifts.date}", "${COLUMNS.shifts.memberId}", "${COLUMNS.shifts.person}", "${COLUMNS.shifts.coverageStatus}"]) {
                 id
                 text
                 value
@@ -747,14 +773,26 @@ async function signUpForShift(request, env) {
     );
   }
 
+  const members = await listMembers(env);
+  const member = members.find((item) => item.memberId === cleanMemberId);
+  const person = memberDisplayForShift(member, cleanMemberId);
+
   await mondayGraphQL(
     env,
-    `mutation SetShiftMember($boardId: ID!, $itemId: ID!, $memberColumn: String!, $statusColumn: String!, $memberId: String!, $status: String!) {
+    `mutation SetShiftMember($boardId: ID!, $itemId: ID!, $memberColumn: String!, $personColumn: String!, $statusColumn: String!, $memberId: String!, $person: String!, $status: String!) {
       setMember: change_simple_column_value(
         board_id: $boardId,
         item_id: $itemId,
         column_id: $memberColumn,
         value: $memberId
+      ) {
+        id
+      }
+      setPerson: change_simple_column_value(
+        board_id: $boardId,
+        item_id: $itemId,
+        column_id: $personColumn,
+        value: $person
       ) {
         id
       }
@@ -771,14 +809,23 @@ async function signUpForShift(request, env) {
       boardId: BOARDS.colabCalendar,
       itemId: cleanShiftId,
       memberColumn: COLUMNS.shifts.memberId,
+      personColumn: COLUMNS.shifts.person,
       statusColumn: COLUMNS.shifts.coverageStatus,
       memberId: cleanMemberId,
+      person,
       status: "Covered",
     },
     { idempotencyKey: crypto.randomUUID() },
   );
 
-  return json({ ok: true, shiftId: cleanShiftId, memberId: cleanMemberId });
+  return json({
+    ok: true,
+    shiftId: cleanShiftId,
+    memberId: cleanMemberId,
+    person,
+    coveredBy: shiftCoveredBy(person, cleanMemberId),
+    coverageStatus: "Covered",
+  });
 }
 
 async function findMember(request, env) {
