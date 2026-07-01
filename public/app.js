@@ -3,6 +3,7 @@ const state = {
   selectedMemberId: localStorage.getItem("colabSelectedMemberId") || "",
   shifts: [],
   activities: [],
+  votes: [],
   activitySummary: {
     total: 0,
     thisMonth: 0,
@@ -10,10 +11,10 @@ const state = {
     byType: [],
   },
   signedUpShifts: new Set(),
-  memberVotes: new Set(),
   shiftSource: "loading",
   memberSource: "loading",
   activitySource: "loading",
+  voteSource: "loading",
 };
 
 const events = [
@@ -44,23 +45,6 @@ const events = [
     time: "5:00 PM",
     type: "member",
     meta: "Shared project table reserved for organizers.",
-  },
-];
-
-const announcements = [
-  {
-    id: "vote-01",
-    title: "Extend Sunday studio hours for the summer",
-    closes: "Closes Jul 5",
-    support: 68,
-    votes: 34,
-  },
-  {
-    id: "vote-02",
-    title: "Add a monthly member skill-share night",
-    closes: "Closes Jul 12",
-    support: 82,
-    votes: 29,
   },
 ];
 
@@ -211,6 +195,7 @@ function renderMemberSelect() {
   localStorage.setItem("colabSelectedMemberId", state.selectedMemberId);
   renderMemberView();
   if (state.shifts.length) renderShifts();
+  if (state.votes.length) renderVotes();
 }
 
 function renderShifts() {
@@ -401,29 +386,101 @@ function renderEvents(filter = "all") {
     .join("");
 }
 
-function renderAnnouncements() {
-  voteCount.textContent = announcements.length;
-  announcementList.innerHTML = announcements
-    .map((announcement) => {
-      const selected = state.memberVotes.has(announcement.id);
+function responseCount(vote, response) {
+  return vote.responseCounts?.[response] || 0;
+}
+
+function renderVotes() {
+  const openVotes = state.votes.filter((vote) => vote.status !== "Approved");
+  voteCount.textContent = openVotes.length;
+
+  if (!state.votes.length) {
+    announcementList.innerHTML = `<p class="form-note">No community votes are open right now.</p>`;
+    return;
+  }
+
+  announcementList.innerHTML = state.votes
+    .map((vote) => {
+      const memberResponse = vote.memberResponse || "";
+      const approved = vote.status === "Approved";
+      const needsComment = memberResponse === "Don't Approve(With Comment)";
+      const disabled = approved ? "disabled" : "";
+
       return `
         <article class="announcement-item">
-          <div class="vote-row">
+          <div class="vote-row vote-row-top">
             <div>
-              <p class="announcement-title">${announcement.title}</p>
-              <span class="event-meta">${announcement.closes} · ${announcement.votes} member votes</span>
+              <p class="announcement-title">${escapeHtml(vote.question)}</p>
+              <span class="event-meta">${escapeHtml(vote.voteType)} · ${escapeHtml(vote.closesLabel)} · ${escapeHtml(vote.status)}</span>
             </div>
-            <button class="vote-button" type="button" data-vote-id="${announcement.id}" aria-pressed="${selected}">
-              ${selected ? "Voted yes" : "Vote yes"}
+            <span class="status-pill">${escapeHtml(vote.responseTotal || 0)} responses</span>
+          </div>
+          ${
+            vote.details
+              ? `<p class="vote-details">${escapeHtml(vote.details)}</p>`
+              : ""
+          }
+          <div class="vote-counts" aria-label="Vote response totals">
+            <span>Approve <strong>${responseCount(vote, "Approve")}</strong></span>
+            <span>Don't approve <strong>${responseCount(vote, "Don't Approve(With Comment)")}</strong></span>
+          </div>
+          <div class="vote-actions">
+            <button
+              class="vote-button"
+              type="button"
+              data-vote-motion="${escapeHtml(vote.question)}"
+              data-vote-response="Approve"
+              aria-pressed="${memberResponse === "Approve"}"
+              ${disabled}
+            >
+              ${memberResponse === "Approve" ? "Approved" : "Approve"}
+            </button>
+            <button
+              class="vote-button"
+              type="button"
+              data-vote-motion="${escapeHtml(vote.question)}"
+              data-vote-response="Don't Approve(With Comment)"
+              aria-pressed="${needsComment}"
+              ${disabled}
+            >
+              Don't approve
             </button>
           </div>
-          <div class="progress" aria-label="${announcement.support}% support">
-            <span style="width: ${announcement.support}%"></span>
-          </div>
+          <label class="vote-comment">
+            Comment
+            <textarea
+              data-vote-comment="${escapeHtml(vote.question)}"
+              ${disabled}
+            >${escapeHtml(vote.memberComment || "")}</textarea>
+          </label>
         </article>
       `;
     })
     .join("");
+}
+
+async function loadVotes() {
+  const member = selectedMember();
+  const memberQuery = member?.memberId
+    ? `?memberId=${encodeURIComponent(member.memberId)}`
+    : "";
+
+  announcementList.innerHTML = `<p class="form-note">Loading community votes...</p>`;
+
+  try {
+    const response = await fetch(`/api/votes${memberQuery}`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to load votes.");
+
+    state.votes = payload.votes || [];
+    state.voteSource = payload.source || "monday";
+  } catch (error) {
+    state.votes = [];
+    state.voteSource = "error";
+    announcementList.innerHTML = `<p class="form-note">${escapeHtml(error.message)}</p>`;
+  }
+
+  renderVotes();
 }
 
 function renderPayments() {
@@ -491,18 +548,51 @@ function handleShiftClick(event) {
   signUpForShift(button.dataset.shiftId, button);
 }
 
-function handleVoteClick(event) {
-  const button = event.target.closest("[data-vote-id]");
-  if (!button) return;
+async function handleVoteClick(event) {
+  const communityVoteButton = event.target.closest("[data-vote-motion]");
+  if (!communityVoteButton) return;
 
-  const voteId = button.dataset.voteId;
-  if (state.memberVotes.has(voteId)) {
-    state.memberVotes.delete(voteId);
-  } else {
-    state.memberVotes.add(voteId);
+  const member = selectedMember();
+  if (!member?.memberId) {
+    memberSelect.focus();
+    return;
   }
 
-  renderAnnouncements();
+  const motion = communityVoteButton.dataset.voteMotion;
+  const responseValue = communityVoteButton.dataset.voteResponse;
+  const commentInput = Array.from(
+    document.querySelectorAll("[data-vote-comment]"),
+  ).find((input) => input.dataset.voteComment === motion);
+  const comment = commentInput?.value.trim() || "";
+
+  if (responseValue === "Don't Approve(With Comment)" && !comment) {
+    commentInput?.focus();
+    return;
+  }
+
+  communityVoteButton.disabled = true;
+  communityVoteButton.textContent = "Saving...";
+
+  try {
+    const apiResponse = await fetch("/api/votes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        motion,
+        response: responseValue,
+        comment,
+        memberId: member.memberId,
+      }),
+    });
+    const payload = await apiResponse.json();
+    if (!apiResponse.ok) throw new Error(payload.error || "Vote failed.");
+
+    await loadVotes();
+  } catch (error) {
+    communityVoteButton.textContent = responseValue === "Approve" ? "Approve" : "Don't approve";
+    communityVoteButton.disabled = false;
+    if (commentInput) commentInput.placeholder = error.message;
+  }
 }
 
 document.querySelectorAll("[data-open-shift-modal]").forEach((button) => {
@@ -515,6 +605,7 @@ memberSelect.addEventListener("change", (event) => {
   renderMemberView();
   renderShifts();
   loadActivity();
+  loadVotes();
 });
 
 document.addEventListener("click", (event) => {
@@ -538,10 +629,10 @@ document.querySelectorAll("[data-section-link]").forEach((link) => {
 async function init() {
   await loadMembers();
   await loadActivity();
+  await loadVotes();
   loadShifts();
 }
 
 init();
 renderEvents();
-renderAnnouncements();
 renderPayments();

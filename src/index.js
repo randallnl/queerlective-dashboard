@@ -4,6 +4,18 @@ const BOARDS = {
   colabCalendar: 8374554428,
   colabMembers: 8402413272,
   activityFeedback: 18408298018,
+  voteLog: 18411164142,
+};
+
+const VOTE_TYPES = [
+  "Super Majority Vote",
+  "Consent Vote",
+  "Simple Majority Vote",
+];
+
+const VOTE_RESPONSES = {
+  approve: "Approve",
+  dontApprove: "Don't Approve(With Comment)",
 };
 
 const COLUMNS = {
@@ -33,6 +45,12 @@ const COLUMNS = {
     submitDate: "date_mm2mqnq2",
     description: "long_text3mhw34i5",
     person: "text_mm34jrzj",
+  },
+  votes: {
+    response: "color_mm4vbrwr",
+    comment: "long_texta8lzlxn7",
+    motion: "text_mm4vp4ny",
+    memberId: "text_mm4vff42",
   },
 };
 
@@ -92,6 +110,24 @@ const MOCK_ACTIVITY = [
     submitDate: "2026-07-01",
     description: "Covered an evening studio host shift.",
     person: "Ari R. | Member ID: mock-member-01",
+  },
+];
+
+const MOCK_VOTES = [
+  {
+    id: "mock-vote-01",
+    question: "Extend Sunday studio hours for the summer",
+    details: "Preview vote loaded while monday is unavailable.",
+    voteType: "Consent Vote",
+    submitDate: "2026-07-01",
+    displayDate: "Jul 1, 2026",
+    closesAt: "2026-08-18",
+    closesLabel: "Auto-approves Aug 18, 2026",
+    status: "Open",
+    responseCounts: { Approve: 2, "Don't Approve(With Comment)": 0 },
+    memberResponse: "",
+    memberComment: "",
+    requiresComment: true,
   },
 ];
 
@@ -160,6 +196,14 @@ function formatActivityDate(dateValue) {
 function memberIdFromPerson(personText) {
   const match = personText.match(/Member ID:\s*([^|\s]+)/i);
   return match?.[1]?.trim() || "";
+}
+
+function memberDisplayForVote(member) {
+  const name = member?.preferredName || member?.name || "Member";
+  const parts = name.split(/\s+/).filter(Boolean);
+  const firstName = parts[0] || "Member";
+  const lastInitial = parts.length > 1 ? `${parts.at(-1)[0].toUpperCase()}.` : "";
+  return `${firstName}${lastInitial ? ` ${lastInitial}` : ""} | Member ID: ${member.memberId}`;
 }
 
 async function mondayToken(env) {
@@ -279,6 +323,42 @@ function normalizeActivity(item) {
     description: getColumnText(item.column_values, COLUMNS.activity.description),
     person,
     personMemberId: memberIdFromPerson(person),
+  };
+}
+
+function normalizeVoteMotion(item) {
+  const normalized = normalizeActivity(item);
+  const voteType = normalized.activityType;
+  const submitDate = normalized.submitDate;
+  const closeDate = submitDate ? new Date(`${submitDate}T00:00:00Z`) : null;
+
+  if (closeDate && voteType === "Consent Vote") {
+    closeDate.setUTCDate(closeDate.getUTCDate() + 48);
+  }
+
+  return {
+    id: item.id,
+    question: item.name,
+    details: normalized.description,
+    voteType,
+    submitDate,
+    displayDate: normalized.displayDate,
+    closesAt: closeDate ? closeDate.toISOString().slice(0, 10) : "",
+    closesLabel:
+      voteType === "Consent Vote" && closeDate
+        ? `Auto-approves ${formatActivityDate(closeDate.toISOString().slice(0, 10))}`
+        : "Open for member votes",
+    requiresComment: voteType === "Consent Vote",
+  };
+}
+
+function normalizeVoteResponse(item) {
+  return {
+    id: item.id,
+    response: getColumnText(item.column_values, COLUMNS.votes.response),
+    comment: getColumnText(item.column_values, COLUMNS.votes.comment),
+    question: getColumnText(item.column_values, COLUMNS.votes.motion),
+    memberId: getColumnText(item.column_values, COLUMNS.votes.memberId),
   };
 }
 
@@ -445,6 +525,165 @@ async function listActivity(env, memberId) {
   };
 }
 
+function aggregateVotes(motions, responses, memberId) {
+  const cleanMemberId = String(memberId || "").trim();
+  const nowValue = new Date().toISOString().slice(0, 10);
+
+  return motions.map((motion) => {
+    const motionResponses = responses.filter(
+      (response) => response.question === motion.question,
+    );
+    const memberVote = motionResponses.find(
+      (response) => response.memberId === cleanMemberId,
+    );
+    const responseCounts = motionResponses.reduce((counts, response) => {
+      const label = response.response || "No response";
+      counts[label] = (counts[label] || 0) + 1;
+      return counts;
+    }, {});
+    const objectionCount = responseCounts[VOTE_RESPONSES.dontApprove] || 0;
+    const isConsentApproved =
+      motion.voteType === "Consent Vote" &&
+      motion.closesAt &&
+      motion.closesAt < nowValue &&
+      objectionCount === 0;
+
+    return {
+      ...motion,
+      status: isConsentApproved ? "Approved" : "Open",
+      responseCounts,
+      responseTotal: motionResponses.length,
+      memberResponse: memberVote?.response || "",
+      memberComment: memberVote?.comment || "",
+    };
+  });
+}
+
+async function listVotes(env, memberId) {
+  const [motionData, responseData] = await Promise.all([
+    mondayGraphQL(
+      env,
+      `query CoLabVoteMotions($boardIds: [ID!]) {
+        boards(ids: $boardIds) {
+          items_page(limit: 200) {
+            items {
+              id
+              name
+              column_values(ids: [
+                "${COLUMNS.activity.activityType}",
+                "${COLUMNS.activity.submitDate}",
+                "${COLUMNS.activity.description}"
+              ]) {
+                id
+                text
+                value
+              }
+            }
+          }
+        }
+      }`,
+      { boardIds: [BOARDS.activityFeedback] },
+    ),
+    mondayGraphQL(
+      env,
+      `query CoLabVoteResponses($boardIds: [ID!]) {
+        boards(ids: $boardIds) {
+          items_page(limit: 500) {
+            items {
+              id
+              name
+              column_values(ids: [
+                "${COLUMNS.votes.response}",
+                "${COLUMNS.votes.comment}",
+                "${COLUMNS.votes.motion}",
+                "${COLUMNS.votes.memberId}"
+              ]) {
+                id
+                text
+                value
+              }
+            }
+          }
+        }
+      }`,
+      { boardIds: [BOARDS.voteLog] },
+    ),
+  ]);
+
+  const motions = (motionData.boards?.[0]?.items_page?.items || [])
+    .map(normalizeVoteMotion)
+    .filter((motion) => VOTE_TYPES.includes(motion.voteType))
+    .sort((a, b) => (b.submitDate || "").localeCompare(a.submitDate || ""));
+  const responses = (responseData.boards?.[0]?.items_page?.items || []).map(
+    normalizeVoteResponse,
+  );
+
+  return aggregateVotes(motions, responses, memberId);
+}
+
+async function submitVote(request, env) {
+  const { motion, response, comment, memberId } = await request.json();
+  const cleanMotion = String(motion || "").trim();
+  const cleanResponse = String(response || "").trim();
+  const cleanComment = String(comment || "").trim();
+  const cleanMemberId = String(memberId || "").trim();
+
+  if (!cleanMotion || !cleanResponse || !cleanMemberId) {
+    return json(
+      { error: "motion, response, and memberId are required." },
+      { status: 400 },
+    );
+  }
+
+  if (!Object.values(VOTE_RESPONSES).includes(cleanResponse)) {
+    return json({ error: "Choose a valid vote response." }, { status: 400 });
+  }
+
+  if (cleanResponse === VOTE_RESPONSES.dontApprove && !cleanComment) {
+    return json(
+      { error: "A comment is required when voting Don't Approve." },
+      { status: 400 },
+    );
+  }
+
+  const members = await listMembers(env);
+  const member = members.find((item) => item.memberId === cleanMemberId);
+  const person = member ? memberDisplayForVote(member) : `Member ID: ${cleanMemberId}`;
+  const columnValues = {
+    [COLUMNS.votes.response]: { label: cleanResponse },
+    [COLUMNS.votes.comment]: cleanComment,
+    [COLUMNS.votes.motion]: cleanMotion,
+    [COLUMNS.votes.memberId]: cleanMemberId,
+  };
+
+  const data = await mondayGraphQL(
+    env,
+    `mutation LogCommunityVote($boardId: ID!, $itemName: String!, $columnValues: JSON!) {
+      create_item(
+        board_id: $boardId,
+        item_name: $itemName,
+        column_values: $columnValues
+      ) {
+        id
+      }
+    }`,
+    {
+      boardId: BOARDS.voteLog,
+      itemName: person,
+      columnValues: JSON.stringify(columnValues),
+    },
+    { idempotencyKey: crypto.randomUUID() },
+  );
+
+  return json({
+    ok: true,
+    voteId: data.create_item?.id,
+    motion: cleanMotion,
+    response: cleanResponse,
+    memberId: cleanMemberId,
+  });
+}
+
 async function signUpForShift(request, env) {
   const { shiftId, memberId } = await request.json();
   const cleanShiftId = String(shiftId || "").trim();
@@ -578,6 +817,21 @@ const apiRoutes = {
       });
     }
   },
+  "GET /api/votes": async (request, env) => {
+    const url = new URL(request.url);
+    const memberId = url.searchParams.get("memberId")?.trim();
+
+    try {
+      return json({ source: "monday", votes: await listVotes(env, memberId) });
+    } catch (error) {
+      return json({
+        source: "mock",
+        warning: error.message,
+        votes: MOCK_VOTES,
+      });
+    }
+  },
+  "POST /api/votes": submitVote,
   "POST /api/shifts/signup": signUpForShift,
   "GET /api/member": findMember,
 };
