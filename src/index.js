@@ -254,6 +254,87 @@ function memberEmails(member) {
     .filter(Boolean);
 }
 
+function isAdminMember(member) {
+  return /admin/i.test(member?.membershipType || "");
+}
+
+function accessEmail(request) {
+  return (
+    request.headers.get("cf-access-authenticated-user-email") ||
+    request.headers.get("Cf-Access-Authenticated-User-Email") ||
+    ""
+  )
+    .trim()
+    .toLowerCase();
+}
+
+function findMemberByEmail(members, email) {
+  if (!email) return null;
+  return members.find((member) => memberEmails(member).includes(email)) || null;
+}
+
+async function accessSession(request, env) {
+  const email = accessEmail(request);
+
+  if (!email) {
+    return {
+      authenticated: false,
+      email: "",
+      member: null,
+      isAdmin: true,
+      canViewAs: true,
+    };
+  }
+
+  const members = await listMembers(env);
+  const member = findMemberByEmail(members, email);
+  const isAdmin = isAdminMember(member);
+
+  return {
+    authenticated: true,
+    email,
+    member,
+    isAdmin,
+    canViewAs: isAdmin,
+  };
+}
+
+async function authorizeMemberRequest(request, env, requestedMemberId) {
+  const session = await accessSession(request, env);
+  const cleanRequestedMemberId = String(requestedMemberId || "").trim();
+
+  if (!session.authenticated) {
+    return {
+      ...session,
+      memberId: cleanRequestedMemberId,
+    };
+  }
+
+  if (!session.member?.memberId) {
+    const error = new Error("Your login email is not connected to a CoLab member profile.");
+    error.status = 403;
+    throw error;
+  }
+
+  if (session.isAdmin) {
+    return {
+      ...session,
+      memberId: cleanRequestedMemberId || session.member.memberId,
+    };
+  }
+
+  if (cleanRequestedMemberId && cleanRequestedMemberId !== session.member.memberId) {
+    const error = new Error("You can only view your own member dashboard.");
+    error.status = 403;
+    throw error;
+  }
+
+  return {
+    ...session,
+    memberId: session.member.memberId,
+  };
+}
+
 function memberIdFromPerson(personText) {
   const match = personText.match(/Member ID:\s*([^|\s]+)/i);
   return match?.[1]?.trim() || "";
@@ -803,7 +884,7 @@ async function listProjectEvents(env, memberId) {
   const cleanMemberId = String(memberId || "").trim();
   const members = cleanMemberId ? await listMembers(env) : [];
   const member = members.find((item) => item.memberId === cleanMemberId);
-  const isAdmin = /admin/i.test(member?.membershipType || "");
+  const isAdmin = isAdminMember(member);
 
   const data = await mondayGraphQL(
     env,
@@ -844,7 +925,10 @@ async function submitVote(request, env) {
   const cleanComment = String(comment || "").trim();
   const cleanMemberId = String(memberId || "").trim();
 
-  if (!cleanVoteId || !cleanMotion || !cleanResponse || !cleanMemberId) {
+  const authorized = await authorizeMemberRequest(request, env, cleanMemberId);
+  const authorizedMemberId = authorized.memberId;
+
+  if (!cleanVoteId || !cleanMotion || !cleanResponse || !authorizedMemberId) {
     return json(
       { error: "voteId, motion, response, and memberId are required." },
       { status: 400 },
@@ -889,7 +973,7 @@ async function submitVote(request, env) {
   ).map(normalizeVoteResponse);
   const duplicate = existingResponses.find(
     (vote) =>
-      vote.memberId === cleanMemberId &&
+      vote.memberId === authorizedMemberId &&
       (vote.voteId === cleanVoteId ||
         (!vote.voteId && vote.question === cleanMotion)),
   );
@@ -905,13 +989,13 @@ async function submitVote(request, env) {
   }
 
   const members = await listMembers(env);
-  const member = members.find((item) => item.memberId === cleanMemberId);
-  const person = member ? memberDisplayForVote(member) : `Member ID: ${cleanMemberId}`;
+  const member = members.find((item) => item.memberId === authorizedMemberId);
+  const person = member ? memberDisplayForVote(member) : `Member ID: ${authorizedMemberId}`;
   const columnValues = {
     [COLUMNS.votes.response]: { label: cleanResponse },
     [COLUMNS.votes.comment]: cleanComment,
     [COLUMNS.votes.motion]: cleanMotion,
-    [COLUMNS.votes.memberId]: cleanMemberId,
+    [COLUMNS.votes.memberId]: authorizedMemberId,
     [COLUMNS.votes.voteId]: cleanVoteId,
   };
 
@@ -940,7 +1024,7 @@ async function submitVote(request, env) {
     motionId: cleanVoteId,
     motion: cleanMotion,
     response: cleanResponse,
-    memberId: cleanMemberId,
+    memberId: authorizedMemberId,
   });
 }
 
@@ -957,10 +1041,12 @@ async function signUpForShift(request, env) {
     );
   }
 
+  const authorized = await authorizeMemberRequest(request, env, cleanMemberId);
+  const authorizedMemberId = authorized.memberId;
   const boardId = cleanShiftBoardId || BOARDS.colabCalendar;
   const members = await listMembers(env);
-  const member = members.find((item) => item.memberId === cleanMemberId);
-  const person = memberDisplayForShift(member, cleanMemberId);
+  const member = members.find((item) => item.memberId === authorizedMemberId);
+  const person = memberDisplayForShift(member, authorizedMemberId);
 
   await mondayGraphQL(
     env,
@@ -996,7 +1082,7 @@ async function signUpForShift(request, env) {
       memberColumn: COLUMNS.shifts.memberId,
       personColumn: COLUMNS.shifts.person,
       statusColumn: COLUMNS.shifts.coverageStatus,
-      memberId: cleanMemberId,
+      memberId: authorizedMemberId,
       person,
       status: "Covered",
     },
@@ -1007,7 +1093,7 @@ async function signUpForShift(request, env) {
     ok: true,
     shiftId: cleanShiftId,
     shiftBoardId: boardId,
-    memberId: cleanMemberId,
+    memberId: authorizedMemberId,
     person,
     coveredBy: shiftCoveredBy(person),
     coverageStatus: "Covered",
@@ -1023,6 +1109,7 @@ async function findMember(request, env) {
     return json({ error: "Provide email or memberId." }, { status: 400 });
   }
 
+  const session = await accessSession(request, env);
   const members = await listMembers(env);
   const match = members.find((item) => {
     const primaryEmail = item.email.toLowerCase();
@@ -1037,6 +1124,21 @@ async function findMember(request, env) {
 
   if (!match) {
     return json({ member: null }, { status: 404 });
+  }
+
+  if (session.authenticated && !session.member) {
+    return json(
+      { error: "Your login email is not connected to a CoLab member profile." },
+      { status: 403 },
+    );
+  }
+
+  if (
+    session.authenticated &&
+    !session.isAdmin &&
+    match.memberId !== session.member.memberId
+  ) {
+    return json({ error: "You can only view your own member dashboard." }, { status: 403 });
   }
 
   return json({
@@ -1064,8 +1166,25 @@ const apiRoutes = {
   },
   "GET /api/members": async (_request, env) => {
     try {
+      const session = await accessSession(_request, env);
       const members = await listMembers(env);
-      return json({ source: "monday", members: members.map(publicMember) });
+      if (session.authenticated && !session.member) {
+        return json(
+          { error: "Your login email is not connected to a CoLab member profile." },
+          { status: 403 },
+        );
+      }
+
+      const visibleMembers =
+        session.authenticated && !session.isAdmin && session.member
+          ? members.filter((member) => member.memberId === session.member.memberId)
+          : members;
+
+      return json({
+        source: "monday",
+        members: visibleMembers.map(publicMember),
+        canViewAs: session.canViewAs,
+      });
     } catch (error) {
       return json({
         source: "mock",
@@ -1076,12 +1195,15 @@ const apiRoutes = {
   },
   "GET /api/activity": async (request, env) => {
     const url = new URL(request.url);
-    const memberId = url.searchParams.get("memberId")?.trim();
+    let memberId = url.searchParams.get("memberId")?.trim();
 
     try {
+      memberId = (await authorizeMemberRequest(request, env, memberId)).memberId;
       const activity = await listActivity(env, memberId);
       return json({ source: "monday", ...activity });
     } catch (error) {
+      if (error.status) return json({ error: error.message }, { status: error.status });
+
       const mockActivities = MOCK_ACTIVITY.filter(
         (activity) =>
           !memberId ||
@@ -1103,11 +1225,14 @@ const apiRoutes = {
   },
   "GET /api/votes": async (request, env) => {
     const url = new URL(request.url);
-    const memberId = url.searchParams.get("memberId")?.trim();
+    let memberId = url.searchParams.get("memberId")?.trim();
 
     try {
+      memberId = (await authorizeMemberRequest(request, env, memberId)).memberId;
       return json({ source: "monday", votes: await listVotes(env, memberId) });
     } catch (error) {
+      if (error.status) return json({ error: error.message }, { status: error.status });
+
       return json({
         source: "mock",
         warning: error.message,
@@ -1117,11 +1242,14 @@ const apiRoutes = {
   },
   "GET /api/payments": async (request, env) => {
     const url = new URL(request.url);
-    const memberId = url.searchParams.get("memberId")?.trim();
+    let memberId = url.searchParams.get("memberId")?.trim();
 
     try {
+      memberId = (await authorizeMemberRequest(request, env, memberId)).memberId;
       return json({ source: "monday", payments: await listPayments(env, memberId) });
     } catch (error) {
+      if (error.status) return json({ error: error.message }, { status: error.status });
+
       return json({
         source: "mock",
         warning: error.message,
@@ -1131,11 +1259,14 @@ const apiRoutes = {
   },
   "GET /api/events": async (request, env) => {
     const url = new URL(request.url);
-    const memberId = url.searchParams.get("memberId")?.trim();
+    let memberId = url.searchParams.get("memberId")?.trim();
 
     try {
+      memberId = (await authorizeMemberRequest(request, env, memberId)).memberId;
       return json({ source: "monday", events: await listProjectEvents(env, memberId) });
     } catch (error) {
+      if (error.status) return json({ error: error.message }, { status: error.status });
+
       return json({
         source: "mock",
         warning: error.message,
@@ -1146,6 +1277,17 @@ const apiRoutes = {
   "POST /api/votes": submitVote,
   "POST /api/shifts/signup": signUpForShift,
   "GET /api/member": findMember,
+  "GET /api/session": async (request, env) => {
+    const session = await accessSession(request, env);
+
+    return json({
+      authenticated: session.authenticated,
+      email: session.email,
+      member: session.member ? publicMember(session.member) : null,
+      isAdmin: session.isAdmin,
+      canViewAs: session.canViewAs,
+    });
+  },
 };
 
 export default {
@@ -1157,7 +1299,7 @@ export default {
       try {
         return await route(request, env);
       } catch (error) {
-        return json({ error: error.message }, { status: 500 });
+        return json({ error: error.message }, { status: error.status || 500 });
       }
     }
 

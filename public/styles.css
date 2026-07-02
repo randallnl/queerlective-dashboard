@@ -144,6 +144,38 @@ main {
   gap: 12px;
 }
 
+.access-card {
+  display: grid;
+  min-width: 220px;
+  max-width: 300px;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px 12px;
+}
+
+.access-card span,
+.access-card a {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.access-card strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.access-card a {
+  color: var(--teal-dark);
+  text-transform: none;
+}
+
 .panel-actions {
   display: flex;
   align-items: center;
@@ -272,7 +304,7 @@ main {
 }
 
 .metric-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
 }
 
 .metric-grid article,

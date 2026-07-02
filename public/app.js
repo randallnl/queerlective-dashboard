@@ -1,4 +1,11 @@
 const state = {
+  session: {
+    authenticated: false,
+    email: "",
+    member: null,
+    isAdmin: true,
+    canViewAs: true,
+  },
   members: [],
   selectedMemberId: localStorage.getItem("colabSelectedMemberId") || "",
   shifts: [],
@@ -85,6 +92,9 @@ const activityList = document.querySelector("#activity-list");
 const shiftSection = document.querySelector("#shifts");
 const headerShiftAction = document.querySelector("#header-shift-action");
 const shiftNavLink = document.querySelector("#nav-shifts");
+const accessStatus = document.querySelector("#access-status");
+const accessEmail = document.querySelector("#access-email");
+const accessLogout = document.querySelector("#access-logout");
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -97,6 +107,10 @@ function escapeHtml(value) {
 
 function selectedMember() {
   return state.members.find((member) => member.memberId === state.selectedMemberId);
+}
+
+function canViewAsMembers() {
+  return state.session.canViewAs !== false;
 }
 
 function isRetailOnlyMember(member = selectedMember()) {
@@ -318,7 +332,8 @@ function renderMemberSelect() {
     return;
   }
 
-  memberSelect.disabled = false;
+  const canViewAs = canViewAsMembers();
+  memberSelect.disabled = !canViewAs;
   memberSelect.innerHTML = state.members
     .map((member) => {
       const displayName = member.preferredName || member.name;
@@ -326,15 +341,73 @@ function renderMemberSelect() {
     })
     .join("");
 
+  if (!canViewAs && state.session.member?.memberId) {
+    state.selectedMemberId = state.session.member.memberId;
+  }
+
   if (!state.selectedMemberId || !state.members.some((member) => member.memberId === state.selectedMemberId)) {
     state.selectedMemberId = state.members[0].memberId;
   }
 
   memberSelect.value = state.selectedMemberId;
-  localStorage.setItem("colabSelectedMemberId", state.selectedMemberId);
+  if (canViewAs) {
+    localStorage.setItem("colabSelectedMemberId", state.selectedMemberId);
+  } else {
+    localStorage.removeItem("colabSelectedMemberId");
+  }
   renderMemberView();
   if (state.shifts.length) renderShifts();
   if (state.votes.length) renderVotes();
+}
+
+function renderAccessSession() {
+  const memberName =
+    state.session.member?.preferredName || state.session.member?.name || "member";
+
+  if (!accessStatus || !accessEmail) return;
+
+  if (!state.session.authenticated) {
+    accessStatus.textContent = "Local preview";
+    accessEmail.textContent = "Zero Trust login appears after deployment";
+    accessLogout?.classList.add("is-hidden");
+    return;
+  }
+
+  accessStatus.textContent = state.session.canViewAs ? "Admin login" : "Logged in";
+  accessEmail.textContent = state.session.member
+    ? `${memberName} · ${state.session.email}`
+    : state.session.email;
+  accessLogout?.classList.remove("is-hidden");
+}
+
+async function loadSession() {
+  try {
+    const response = await fetch("/api/session");
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to load login.");
+
+    state.session = {
+      authenticated: Boolean(payload.authenticated),
+      email: payload.email || "",
+      member: payload.member || null,
+      isAdmin: payload.isAdmin !== false,
+      canViewAs: payload.canViewAs !== false,
+    };
+
+    if (state.session.member?.memberId && !state.session.canViewAs) {
+      state.selectedMemberId = state.session.member.memberId;
+    }
+  } catch {
+    state.session = {
+      authenticated: false,
+      email: "",
+      member: null,
+      isAdmin: true,
+      canViewAs: true,
+    };
+  }
+
+  renderAccessSession();
 }
 
 function renderShifts() {
@@ -385,6 +458,7 @@ async function loadMembers() {
 
     state.members = payload.members || [];
     state.memberSource = payload.source || "monday";
+    if (payload.canViewAs === false) state.session.canViewAs = false;
   } catch (error) {
     state.members = [];
     state.memberSource = "error";
@@ -890,6 +964,11 @@ async function handleVoteClick(event) {
 }
 
 memberSelect.addEventListener("change", (event) => {
+  if (!canViewAsMembers()) {
+    memberSelect.value = state.selectedMemberId;
+    return;
+  }
+
   state.selectedMemberId = event.target.value;
   localStorage.setItem("colabSelectedMemberId", state.selectedMemberId);
   renderMemberView();
@@ -934,6 +1013,7 @@ document.querySelectorAll("[data-section-link]").forEach((link) => {
 });
 
 async function init() {
+  await loadSession();
   await loadMembers();
   await loadActivity();
   await loadVotes();
