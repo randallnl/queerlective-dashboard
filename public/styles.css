@@ -295,8 +295,17 @@ main {
   align-items: start;
 }
 
+.coverage-calendar-grid {
+  grid-template-columns: minmax(360px, 0.85fr) minmax(640px, 1.55fr);
+}
+
 .lower-grid {
   grid-template-columns: minmax(0, 1fr) minmax(340px, 0.7fr);
+}
+
+.full-width-stack {
+  display: grid;
+  gap: 16px;
 }
 
 .panel {
@@ -391,6 +400,114 @@ main {
 
 .event-item {
   grid-template-columns: 58px minmax(0, 1fr);
+}
+
+.calendar-month-label {
+  margin-top: 16px;
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line);
+}
+
+.calendar-weekday,
+.calendar-day {
+  background: #fff;
+}
+
+.calendar-weekday {
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.calendar-day {
+  min-height: 132px;
+  padding: 8px;
+}
+
+.calendar-day.blank {
+  background: #f8f7f2;
+}
+
+.calendar-day-number {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.calendar-day-events {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.calendar-event {
+  display: grid;
+  gap: 2px;
+  border-left: 3px solid var(--teal);
+  border-radius: 6px;
+  background: var(--mint);
+  color: var(--teal-dark);
+  padding: 6px 7px;
+}
+
+.calendar-event.member {
+  border-left-color: var(--coral);
+  background: var(--rose);
+  color: #843925;
+}
+
+.calendar-event.workshop {
+  border-left-color: var(--gold);
+  background: #fbf2dd;
+  color: #735314;
+}
+
+.calendar-event.maintenance {
+  border-left-color: #60706b;
+  background: #f0f2ef;
+  color: #3f4d49;
+}
+
+.calendar-event strong,
+.calendar-event span,
+.calendar-event small {
+  overflow-wrap: anywhere;
+}
+
+.calendar-event strong {
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.calendar-event span,
+.calendar-event small {
+  font-size: 0.7rem;
+  line-height: 1.25;
+}
+
+.calendar-event small {
+  color: currentColor;
+  opacity: 0.78;
 }
 
 .date-badge {
@@ -633,6 +750,7 @@ dialog::backdrop {
   }
 
   .content-grid,
+  .coverage-calendar-grid,
   .lower-grid {
     grid-template-columns: 1fr;
   }
@@ -666,6 +784,11 @@ dialog::backdrop {
   .metric-grid,
   .resource-grid {
     grid-template-columns: 1fr;
+  }
+
+  .calendar-grid {
+    overflow-x: auto;
+    grid-template-columns: repeat(7, minmax(132px, 1fr));
   }
 
   .hero {

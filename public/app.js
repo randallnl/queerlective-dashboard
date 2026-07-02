@@ -21,6 +21,7 @@ const events = [
   {
     title: "Print night",
     date: "Jul 3",
+    dateValue: "2026-07-03",
     time: "6:00 PM",
     type: "member",
     meta: "Member-led studio session in the main room.",
@@ -28,6 +29,7 @@ const events = [
   {
     title: "Intro to risograph",
     date: "Jul 6",
+    dateValue: "2026-07-06",
     time: "11:00 AM",
     type: "workshop",
     meta: "Limited seats. Tool orientation required afterward.",
@@ -35,6 +37,7 @@ const events = [
   {
     title: "Tool wall reset",
     date: "Jul 8",
+    dateValue: "2026-07-08",
     time: "9:00 AM",
     type: "maintenance",
     meta: "Back bench access will be limited until noon.",
@@ -42,6 +45,7 @@ const events = [
   {
     title: "Mutual aid poster build",
     date: "Jul 11",
+    dateValue: "2026-07-11",
     time: "5:00 PM",
     type: "member",
     meta: "Shared project table reserved for organizers.",
@@ -157,6 +161,30 @@ function calendarDateParts(event) {
     month: parts.at(-2) || "",
     day: parts.at(-1) || "",
   };
+}
+
+function monthDateFromEvents(eventsForCalendar) {
+  const firstDatedEvent = eventsForCalendar.find((event) => event.dateValue);
+  const sourceDate = firstDatedEvent?.dateValue || new Date().toISOString().slice(0, 10);
+  const date = new Date(`${sourceDate}T00:00:00Z`);
+
+  if (Number.isNaN(date.getTime())) {
+    return new Date();
+  }
+
+  return date;
+}
+
+function eventDateKey(event) {
+  if (event.dateValue) return event.dateValue;
+
+  const { month, day } = calendarDateParts(event);
+  if (!month || !day) return "";
+
+  const fallbackDate = new Date(`${month} ${day}, ${new Date().getFullYear()} 00:00:00`);
+  if (Number.isNaN(fallbackDate.getTime())) return "";
+
+  return fallbackDate.toISOString().slice(0, 10);
 }
 
 function shiftButtonLabel(shift, isSignedUp) {
@@ -457,24 +485,76 @@ function renderEvents(filter = "all") {
       meta: `${coveredBy} is covering ${shift.title}.`,
     };
   });
-  const visibleEvents = [...events, ...filledShiftEvents].filter(
-    (event) => filter === "all" || event.type === filter,
-  ).sort((a, b) => (a.dateValue || a.date || "").localeCompare(b.dateValue || b.date || ""));
-  eventList.innerHTML = visibleEvents
-    .map((event) => {
-      const { month, day } = calendarDateParts(event);
-      return `
-        <article class="event-item">
-          <div class="date-badge"><span>${day}</span><small>${month}</small></div>
-          <div>
-            <p class="event-title">${event.title}</p>
-            <span class="event-meta">${event.time} · ${event.meta}</span>
-            <div class="tag-row"><span class="tag">${event.type}</span></div>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
+  const visibleEvents = [...events, ...filledShiftEvents]
+    .filter((event) => filter === "all" || event.type === filter)
+    .sort((a, b) => (a.dateValue || a.date || "").localeCompare(b.dateValue || b.date || ""));
+  const monthDate = monthDateFromEvents(visibleEvents);
+  const year = monthDate.getUTCFullYear();
+  const month = monthDate.getUTCMonth();
+  const monthLabel = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(monthDate);
+  const firstDay = new Date(Date.UTC(year, month, 1));
+  const lastDay = new Date(Date.UTC(year, month + 1, 0));
+  const leadingBlanks = firstDay.getUTCDay();
+  const daysInMonth = lastDay.getUTCDate();
+  const eventMap = visibleEvents.reduce((map, event) => {
+    const key = eventDateKey(event);
+    if (!key) return map;
+
+    map[key] ||= [];
+    map[key].push(event);
+    return map;
+  }, {});
+  const cells = [
+    ...Array.from({ length: leadingBlanks }, () => ({ type: "blank" })),
+    ...Array.from({ length: daysInMonth }, (_, index) => {
+      const day = index + 1;
+      const dateValue = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      return {
+        type: "day",
+        day,
+        events: eventMap[dateValue] || [],
+      };
+    }),
+  ];
+
+  eventList.innerHTML = `
+    <div class="calendar-month-label">${escapeHtml(monthLabel)}</div>
+    <div class="calendar-grid" role="grid" aria-label="${escapeHtml(monthLabel)} calendar">
+      ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        .map((day) => `<div class="calendar-weekday" role="columnheader">${day}</div>`)
+        .join("")}
+      ${cells
+        .map((cell) => {
+          if (cell.type === "blank") {
+            return `<div class="calendar-day blank" aria-hidden="true"></div>`;
+          }
+
+          return `
+            <div class="calendar-day" role="gridcell">
+              <span class="calendar-day-number">${cell.day}</span>
+              <div class="calendar-day-events">
+                ${cell.events
+                  .map(
+                    (event) => `
+                      <article class="calendar-event ${escapeHtml(event.type)}">
+                        <strong>${escapeHtml(event.title)}</strong>
+                        <span>${escapeHtml(event.time)}</span>
+                        <small>${escapeHtml(event.meta)}</small>
+                      </article>
+                    `,
+                  )
+                  .join("")}
+              </div>
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
 }
 
 function responseCount(vote, response) {
