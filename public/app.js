@@ -131,8 +131,27 @@ function shiftPersonName(shift) {
 
 function tagMarkup(tags, extra = "") {
   return tags
-    .map((tag) => `<span class="tag ${extra}">${escapeHtml(tag)}</span>`)
+    .map((tag) => `<span class="tag ${extra} ${toneClass(tag)}">${escapeHtml(tag)}</span>`)
     .join("");
+}
+
+function toneClass(value = "") {
+  const text = String(value).toLowerCase();
+
+  if (/approve|covered|complete|active|high|admin|project/.test(text)) return "tone-teal";
+  if (/pending|consent|review|medium|community|proposal/.test(text)) return "tone-gold";
+  if (/don't|dont|unfulfilled|urgent|critical|blocked|cancel/.test(text)) return "tone-coral";
+  if (/simple|super|vote|low|planning|workshop/.test(text)) return "tone-purple";
+  if (/retail|maintenance|draft|paused/.test(text)) return "tone-slate";
+
+  const tones = ["tone-teal", "tone-coral", "tone-gold", "tone-purple", "tone-slate"];
+  const hash = Array.from(text).reduce((total, char) => total + char.charCodeAt(0), 0);
+  return tones[hash % tones.length];
+}
+
+function statusPillMarkup(value, extra = "") {
+  if (!value) return "";
+  return `<span class="status-pill ${extra} ${toneClass(value)}">${escapeHtml(value)}</span>`;
 }
 
 function sixWeeksFromToday() {
@@ -253,6 +272,38 @@ function shiftMarkup(shift) {
         ${shiftButtonLabel(shift, isSignedUp)}
       </button>
     </article>
+  `;
+}
+
+function calendarEventDetails(event) {
+  const details = [
+    event.date ? `Date: ${event.date}` : "",
+    event.time ? `Time/type: ${event.time}` : "",
+    event.meta || "",
+    event.details || "",
+  ].filter(Boolean);
+  const detailLink = event.detailUrl
+    ? `<a class="calendar-event-link" href="${escapeHtml(event.detailUrl)}">Open details</a>`
+    : "";
+
+  return `
+    <div class="calendar-event-details">
+      ${details.map((detail) => `<p>${escapeHtml(detail)}</p>`).join("")}
+      ${detailLink}
+    </div>
+  `;
+}
+
+function calendarEventMarkup(event) {
+  return `
+    <details class="calendar-event ${escapeHtml(event.type)}">
+      <summary>
+        <strong>${escapeHtml(event.title)}</strong>
+        <span>${escapeHtml(event.time)}</span>
+        <small>${escapeHtml(event.meta)}</small>
+      </summary>
+      ${calendarEventDetails(event)}
+    </details>
   `;
 }
 
@@ -521,7 +572,7 @@ function renderActivity() {
   activityBreakdown.innerHTML = summary.byType
     .map(
       (item) => `
-        <span class="activity-pill">
+        <span class="activity-pill ${toneClass(item.type)}">
           ${escapeHtml(item.type)}
           <strong>${item.count}</strong>
         </span>
@@ -608,6 +659,7 @@ function renderEvents(filter = "all") {
       time: shift.time,
       type: "shift",
       meta: `${coveredBy} is covering ${shift.title}.`,
+      details: `Coverage status: covered by ${coveredBy}.`,
     };
   });
   const visibleEvents = [...state.projectEvents, ...filledShiftEvents]
@@ -663,15 +715,7 @@ function renderEvents(filter = "all") {
               <span class="calendar-day-number">${cell.day}</span>
               <div class="calendar-day-events">
                 ${cell.events
-                  .map(
-                    (event) => `
-                      <article class="calendar-event ${escapeHtml(event.type)}">
-                        <strong>${escapeHtml(event.title)}</strong>
-                        <span>${escapeHtml(event.time)}</span>
-                        <small>${escapeHtml(event.meta)}</small>
-                      </article>
-                    `,
-                  )
+                  .map(calendarEventMarkup)
                   .join("")}
               </div>
             </div>
@@ -769,8 +813,8 @@ function projectCardMarkup(project) {
               : ""
           }
           <div class="admin-project-meta">
-            ${tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}
-            ${resources.length ? `<span class="tag">${resources.length} resource${resources.length === 1 ? "" : "s"}</span>` : ""}
+            ${tags.map((tag) => `<span class="tag ${toneClass(tag)}">${escapeHtml(tag)}</span>`).join("")}
+            ${resources.length ? `<span class="tag tone-slate">${resources.length} resource${resources.length === 1 ? "" : "s"}</span>` : ""}
           </div>
         </div>
         <a class="secondary-action link-action admin-project-action" href="${escapeHtml(project.detailUrl)}">
@@ -863,7 +907,7 @@ function renderVotes() {
           </div>
           ${
             memberHasVoted
-              ? `<p class="form-note">You voted: ${escapeHtml(memberResponse)}</p>`
+              ? `<p class="vote-response-line">You voted ${statusPillMarkup(memberResponse, "vote-response-pill")}</p>`
               : ""
           }
           ${
@@ -981,7 +1025,8 @@ function renderOrders() {
         <article class="order-item">
           <div>
             <strong>${escapeHtml(order.title || "Shopify order")}</strong>
-            <small>${escapeHtml(order.orderDate)} · ${escapeHtml(order.fulfillmentStatus || "Unfulfilled")}</small>
+            <small>${escapeHtml(order.orderDate)}</small>
+            ${statusPillMarkup(order.fulfillmentStatus || "Unfulfilled", "order-status-pill")}
             <p>${escapeHtml(order.details || "No order details listed.")}</p>
           </div>
         </article>

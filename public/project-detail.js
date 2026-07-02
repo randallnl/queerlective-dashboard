@@ -16,6 +16,20 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function toneClass(value = "") {
+  const text = String(value).toLowerCase();
+
+  if (/approve|covered|complete|active|high|admin|project/.test(text)) return "tone-teal";
+  if (/pending|consent|review|medium|community|proposal/.test(text)) return "tone-gold";
+  if (/don't|dont|unfulfilled|urgent|critical|blocked|cancel/.test(text)) return "tone-coral";
+  if (/simple|super|vote|low|planning|workshop/.test(text)) return "tone-purple";
+  if (/retail|maintenance|draft|paused/.test(text)) return "tone-slate";
+
+  const tones = ["tone-teal", "tone-coral", "tone-gold", "tone-purple", "tone-slate"];
+  const hash = Array.from(text).reduce((total, char) => total + char.charCodeAt(0), 0);
+  return tones[hash % tones.length];
+}
+
 function fieldMarkup(label, value) {
   if (!value) return "";
 
@@ -56,6 +70,7 @@ function renderProject(project) {
   title.textContent = project.title || "Untitled project";
   source.textContent = project.typeLabel || project.source || "Admin project";
   status.textContent = project.status || "No status";
+  status.className = `status-pill ${toneClass(project.status || "No status")}`;
   summary.textContent = [
     project.displayDate,
     project.endDateValue ? `Ends ${project.endDateValue}` : "",

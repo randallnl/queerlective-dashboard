@@ -881,6 +881,7 @@ function normalizeProjectEvent(item) {
     type: "project",
     location,
     meta: `${location || "Location TBD"}${isMemberVisible ? "" : " · Admin only"}`,
+    details: `Location: ${location || "TBD"}`,
     adminOnly: !isMemberVisible,
   };
 }
