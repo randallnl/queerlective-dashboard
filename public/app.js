@@ -110,6 +110,16 @@ function memberNameWithLastInitial(member) {
   return `${firstName}${lastInitial ? ` ${lastInitial}` : ""}`;
 }
 
+function shiftPersonName(shift) {
+  if (shift.coveredBy) return shift.coveredBy;
+  if (shift.person) return shift.person.split("|")[0].trim();
+
+  const member = state.members.find((item) => item.memberId === shift.memberId);
+  if (member) return memberNameWithLastInitial(member);
+
+  return shift.memberId || "Member";
+}
+
 function tagMarkup(tags, extra = "") {
   return tags
     .map((tag) => `<span class="tag ${extra}">${escapeHtml(tag)}</span>`)
@@ -481,11 +491,9 @@ async function loadActivity() {
 
 function renderEvents(filter = "all") {
   const filledShiftEvents = filledShiftsForCalendar().map((shift) => {
-    const member = state.members.find((item) => item.memberId === shift.memberId);
     const isSelectedMember =
       selectedMember()?.memberId && shift.memberId === selectedMember().memberId;
-    const coveredBy =
-      shift.coveredBy || (member ? memberNameWithLastInitial(member) : shift.memberId || "Member");
+    const coveredBy = shiftPersonName(shift);
 
     return {
       title: isSelectedMember ? "Your CoLab shift" : "Filled CoLab shift",

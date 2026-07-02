@@ -256,12 +256,12 @@ function memberDisplayForShift(member, memberId) {
   return `${memberNameWithLastInitial(member)} | ${member?.memberId || memberId}`;
 }
 
-function shiftCoveredBy(person, memberId) {
+function shiftCoveredBy(person) {
   if (person) {
     return person.split("|")[0].trim();
   }
 
-  return memberId || "";
+  return "";
 }
 
 async function mondayToken(env) {
@@ -334,7 +334,7 @@ function normalizeShift(parentItem, subitem) {
     time: isSunday ? "2:00 PM - 4:00 PM" : "6:00 PM - 8:00 PM",
     memberId,
     person,
-    coveredBy: shiftCoveredBy(person, memberId),
+    coveredBy: shiftCoveredBy(person),
     coverageStatus: coverageStatus || "Open",
     isCovered: Boolean(memberId || person) || /covered|filled|confirmed/i.test(coverageStatus),
     tags: [dayTag, "studio coverage"],
@@ -922,7 +922,7 @@ async function signUpForShift(request, env) {
     shiftBoardId: boardId,
     memberId: cleanMemberId,
     person,
-    coveredBy: shiftCoveredBy(person, cleanMemberId),
+    coveredBy: shiftCoveredBy(person),
     coverageStatus: "Covered",
   });
 }
