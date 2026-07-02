@@ -29,41 +29,6 @@ const state = {
   calendarMonthOffset: 0,
 };
 
-const events = [
-  {
-    title: "Print night",
-    date: "Jul 3",
-    dateValue: "2026-07-03",
-    time: "6:00 PM",
-    type: "member",
-    meta: "Member-led studio session in the main room.",
-  },
-  {
-    title: "Intro to risograph",
-    date: "Jul 6",
-    dateValue: "2026-07-06",
-    time: "11:00 AM",
-    type: "workshop",
-    meta: "Limited seats. Tool orientation required afterward.",
-  },
-  {
-    title: "Tool wall reset",
-    date: "Jul 8",
-    dateValue: "2026-07-08",
-    time: "9:00 AM",
-    type: "maintenance",
-    meta: "Back bench access will be limited until noon.",
-  },
-  {
-    title: "Mutual aid poster build",
-    date: "Jul 11",
-    dateValue: "2026-07-11",
-    time: "5:00 PM",
-    type: "member",
-    meta: "Shared project table reserved for organizers.",
-  },
-];
-
 const shiftList = document.querySelector("#shift-list");
 const modalShiftList = document.querySelector("#modal-shift-list");
 const eventList = document.querySelector("#event-list");
@@ -609,7 +574,7 @@ function renderEvents(filter = "all") {
       meta: `${coveredBy} is covering ${shift.title}.`,
     };
   });
-  const visibleEvents = [...events, ...state.projectEvents, ...filledShiftEvents]
+  const visibleEvents = [...state.projectEvents, ...filledShiftEvents]
     .filter((event) => filter === "all" || event.type === filter)
     .sort((a, b) => (a.dateValue || a.date || "").localeCompare(b.dateValue || b.date || ""));
   const monthDate = monthRange(state.calendarMonthOffset).date;
