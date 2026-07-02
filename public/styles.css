@@ -763,6 +763,11 @@ select {
   box-shadow: 0 10px 26px rgba(23, 126, 120, 0.12);
 }
 
+.resource-note:hover {
+  border-color: var(--line);
+  box-shadow: none;
+}
+
 dialog {
   width: min(720px, calc(100vw - 28px));
   border: 0;
