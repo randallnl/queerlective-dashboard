@@ -77,11 +77,13 @@ const COLUMNS = {
     processStatus: "status_mkmxzk3x",
     submissionId: "pulse_id_mm2twrhw",
     submittedAt: "pulse_log_mm4wyjyr",
+    spaceRequested: "multi_selectgtgkuzvw",
   },
 };
 
 const MEMBER_VISIBLE_LOCATIONS = /board room|colab|community room|gym/i;
 const APPROVED_STATUS = /approved/i;
+const COLAB_SPACE_REQUEST = /queerlective'?s colab space/i;
 
 const MOCK_SHIFTS = [
   {
@@ -326,6 +328,26 @@ function addDays(dateValue, days) {
 
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+function isWithinPastDays(dateValue, days) {
+  if (!dateValue) return false;
+
+  const date = new Date(`${dateValue}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return false;
+
+  const today = new Date();
+  const todayValue = new Date(
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
+  );
+  const startValue = new Date(todayValue);
+  startValue.setUTCDate(startValue.getUTCDate() - days);
+
+  return date >= startValue && date <= todayValue;
+}
+
+function requestsColabSpace(submission) {
+  return COLAB_SPACE_REQUEST.test(submission?.spaceRequested || "");
 }
 
 function dateFromCreationLog(columnValues, columnId, fallback = "") {
@@ -732,6 +754,10 @@ function normalizeCommunityEventSubmission(item, members = []) {
     item.column_values,
     COLUMNS.communityEvents.materialsRequest,
   );
+  const spaceRequested = getColumnText(
+    item.column_values,
+    COLUMNS.communityEvents.spaceRequested,
+  );
   const consentStatus = APPROVED_STATUS.test(processStatus)
     ? "Approved"
     : "Pending consent";
@@ -763,6 +789,7 @@ function normalizeCommunityEventSubmission(item, members = []) {
       : "Consent vote pending",
     details: description,
     materialsRequest,
+    spaceRequested,
     submissionId:
       getColumnText(item.column_values, COLUMNS.communityEvents.submissionId) || item.id,
     meta: `${consentStatus} · Organized by ${organizerMeta}.`,
@@ -1010,7 +1037,8 @@ async function listCommunityEventSubmissions(env, members = null) {
               "${COLUMNS.communityEvents.requestedDate}",
               "${COLUMNS.communityEvents.processStatus}",
               "${COLUMNS.communityEvents.submissionId}",
-              "${COLUMNS.communityEvents.submittedAt}"
+              "${COLUMNS.communityEvents.submittedAt}",
+              "${COLUMNS.communityEvents.spaceRequested}"
             ]) {
               id
               text
@@ -1155,9 +1183,10 @@ async function listVotes(env, memberId) {
     .map(normalizeVoteMotion)
     .filter((motion) => VOTE_TYPES.includes(motion.voteType))
     .sort((a, b) => (b.submitDate || "").localeCompare(a.submitDate || ""));
-  const communityMotions = (await listCommunityEventSubmissions(env, members)).map(
-    communitySubmissionToVoteMotion,
-  );
+  const communityMotions = (await listCommunityEventSubmissions(env, members))
+    .filter((submission) => isWithinPastDays(submission.submitDate, 7))
+    .filter(requestsColabSpace)
+    .map(communitySubmissionToVoteMotion);
   const motions = [...activityMotions, ...communityMotions].sort((a, b) =>
     (b.submitDate || "").localeCompare(a.submitDate || ""),
   );
