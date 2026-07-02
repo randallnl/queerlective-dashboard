@@ -201,6 +201,15 @@ function getColumnValue(columnValues, columnId) {
   }
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 function formatShiftDate(dateValue, fallback) {
   if (!dateValue) return fallback;
 
@@ -273,6 +282,76 @@ function findMemberByEmail(members, email) {
   return members.find((member) => memberEmails(member).includes(email)) || null;
 }
 
+function memberEmailRequiredError() {
+  const error = new Error("Your login email is not connected to a CoLab member profile.");
+  error.status = 403;
+  return error;
+}
+
+function accessDeniedHtml(email) {
+  return new Response(
+    `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CoLab Access Required</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #fbfaf7;
+        color: #17211f;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      main {
+        width: min(92vw, 560px);
+        border: 1px solid #d9e0dc;
+        border-radius: 8px;
+        background: #fff;
+        padding: 28px;
+        box-shadow: 0 18px 50px rgba(23, 33, 31, 0.1);
+      }
+      p {
+        color: #60706b;
+        line-height: 1.6;
+      }
+      a {
+        color: #0c4f4b;
+        font-weight: 800;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>CoLab member access required</h1>
+      <p>${escapeHtml(email || "This login")} is not connected to a CoLab member profile. Use the email listed on your CoLab membership or ask an admin to add this email to the members board.</p>
+      <p><a href="/cdn-cgi/access/logout">Log out and try another email</a></p>
+    </main>
+  </body>
+</html>`,
+    {
+      status: 403,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    },
+  );
+}
+
+async function requireMatchedAccessMember(request, env) {
+  const session = await accessSession(request, env);
+
+  if (session.authenticated && !session.member?.memberId) {
+    throw memberEmailRequiredError();
+  }
+
+  return session;
+}
+
 async function accessSession(request, env) {
   const email = accessEmail(request);
 
@@ -311,9 +390,7 @@ async function authorizeMemberRequest(request, env, requestedMemberId) {
   }
 
   if (!session.member?.memberId) {
-    const error = new Error("Your login email is not connected to a CoLab member profile.");
-    error.status = 403;
-    throw error;
+    throw memberEmailRequiredError();
   }
 
   if (session.isAdmin) {
@@ -1155,8 +1232,11 @@ const apiRoutes = {
     }),
   "GET /api/shifts": async (_request, env) => {
     try {
+      await requireMatchedAccessMember(_request, env);
       return json({ source: "monday", shifts: await listShifts(env) });
     } catch (error) {
+      if (error.status) return json({ error: error.message }, { status: error.status });
+
       return json({
         source: "mock",
         warning: error.message,
@@ -1166,15 +1246,8 @@ const apiRoutes = {
   },
   "GET /api/members": async (_request, env) => {
     try {
-      const session = await accessSession(_request, env);
+      const session = await requireMatchedAccessMember(_request, env);
       const members = await listMembers(env);
-      if (session.authenticated && !session.member) {
-        return json(
-          { error: "Your login email is not connected to a CoLab member profile." },
-          { status: 403 },
-        );
-      }
-
       const visibleMembers =
         session.authenticated && !session.isAdmin && session.member
           ? members.filter((member) => member.memberId === session.member.memberId)
@@ -1186,6 +1259,8 @@ const apiRoutes = {
         canViewAs: session.canViewAs,
       });
     } catch (error) {
+      if (error.status) return json({ error: error.message }, { status: error.status });
+
       return json({
         source: "mock",
         warning: error.message,
@@ -1278,7 +1353,7 @@ const apiRoutes = {
   "POST /api/shifts/signup": signUpForShift,
   "GET /api/member": findMember,
   "GET /api/session": async (request, env) => {
-    const session = await accessSession(request, env);
+    const session = await requireMatchedAccessMember(request, env);
 
     return json({
       authenticated: session.authenticated,
@@ -1299,6 +1374,16 @@ export default {
       try {
         return await route(request, env);
       } catch (error) {
+        return json({ error: error.message }, { status: error.status || 500 });
+      }
+    }
+
+    if (request.method === "GET" || request.method === "HEAD") {
+      try {
+        await requireMatchedAccessMember(request, env);
+        return env.ASSETS.fetch(request);
+      } catch (error) {
+        if (error.status === 403) return accessDeniedHtml(accessEmail(request));
         return json({ error: error.message }, { status: error.status || 500 });
       }
     }
