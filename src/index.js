@@ -270,6 +270,78 @@ function columnTextOrValue(columnValues, columnId) {
   return "";
 }
 
+function urlsFromText(value) {
+  return Array.from(String(value || "").matchAll(/https?:\/\/[^\s,)"]+/g)).map(
+    (match) => match[0],
+  );
+}
+
+function isImageUrl(url) {
+  return /\.(apng|avif|gif|jpe?g|png|svg|webp)(\?|#|$)/i.test(url || "");
+}
+
+function columnResources(columnValues, columnId, label) {
+  const text = getColumnText(columnValues, columnId);
+  const value = getColumnValue(columnValues, columnId);
+  const resources = [];
+
+  if (value?.url) {
+    resources.push({
+      label: value.text || text || label,
+      url: value.url,
+      type: isImageUrl(value.url) ? "image" : "link",
+    });
+  }
+
+  if (Array.isArray(value?.files)) {
+    value.files.forEach((file) => {
+      const url = file.url || file.public_url || file.linkToFile || "";
+      resources.push({
+        label: file.name || label,
+        url,
+        type: isImageUrl(url) ? "image" : "file",
+      });
+    });
+  }
+
+  urlsFromText(text).forEach((url) => {
+    if (!resources.some((resource) => resource.url === url)) {
+      resources.push({
+        label,
+        url,
+        type: isImageUrl(url) ? "image" : "link",
+      });
+    }
+  });
+
+  if (!resources.length && text) {
+    resources.push({
+      label: text,
+      url: "",
+      type: "file",
+    });
+  }
+
+  return resources;
+}
+
+function firstImageResource(resources = []) {
+  return resources.find((resource) => resource.url && resource.type === "image") || null;
+}
+
+function isUpcomingRecord(record) {
+  if (!record.dateValue) return true;
+
+  const today = new Date();
+  const todayValue = new Date(
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
+  )
+    .toISOString()
+    .slice(0, 10);
+
+  return record.dateValue >= todayValue;
+}
+
 function normalizeUpdates(updates = []) {
   return updates.map((update) => ({
     id: update.id,
@@ -919,6 +991,18 @@ function normalizeAdminProjectItem(item) {
   const category = getColumnText(item.column_values, COLUMNS.projectEvents.category);
   const priority = getColumnText(item.column_values, COLUMNS.projectEvents.priority);
   const location = getColumnText(item.column_values, COLUMNS.projectEvents.location);
+  const resources = [
+    ...columnResources(item.column_values, COLUMNS.projectEvents.posters, "Poster"),
+    ...columnResources(item.column_values, COLUMNS.projectEvents.filesLink, "File / link"),
+    ...columnResources(item.column_values, COLUMNS.projectEvents.registration, "Registration"),
+    ...columnResources(item.column_values, COLUMNS.projectEvents.postEventSurvey, "Post-event survey"),
+    ...columnResources(
+      item.column_values,
+      COLUMNS.projectEvents.googleCalendarEvent,
+      "Google Calendar event",
+    ),
+  ];
+  const thumbnail = firstImageResource(resources);
 
   return {
     id: item.id,
@@ -934,6 +1018,8 @@ function normalizeAdminProjectItem(item) {
     priority,
     location,
     description: getColumnText(item.column_values, COLUMNS.projectEvents.description),
+    thumbnailUrl: thumbnail?.url || "",
+    resources,
     detailUrl: `/projects/detail/?source=project&id=${encodeURIComponent(item.id)}`,
     updates: normalizeUpdates(item.updates || []),
     details: {
@@ -953,6 +1039,12 @@ function normalizeAdminProjectItem(item) {
 
 function normalizeAdminCommunityItem(item, members = []) {
   const submission = normalizeCommunityEventSubmission(item, members);
+  const resources = [
+    ...columnResources(item.column_values, COLUMNS.communityEvents.poster, "Poster"),
+    ...columnResources(item.column_values, COLUMNS.communityEvents.links, "Link"),
+    ...columnResources(item.column_values, COLUMNS.communityEvents.canvaLink, "Canva link"),
+  ];
+  const thumbnail = firstImageResource(resources);
 
   return {
     id: item.id,
@@ -968,6 +1060,8 @@ function normalizeAdminCommunityItem(item, members = []) {
     priority: "",
     location: submission.spaceRequested,
     description: submission.details,
+    thumbnailUrl: thumbnail?.url || "",
+    resources,
     detailUrl: `/projects/detail/?source=community&id=${encodeURIComponent(item.id)}`,
     updates: normalizeUpdates(item.updates || []),
     details: {
@@ -1555,9 +1649,11 @@ async function listAdminProjectRecords(env) {
     listAdminCommunityItems(env, members),
   ]);
 
-  return [...projectItems, ...communityItems].sort((a, b) =>
-    (a.dateValue || "9999-12-31").localeCompare(b.dateValue || "9999-12-31"),
-  );
+  return [...projectItems, ...communityItems]
+    .filter(isUpcomingRecord)
+    .sort((a, b) =>
+      (a.dateValue || "9999-12-31").localeCompare(b.dateValue || "9999-12-31"),
+    );
 }
 
 async function getAdminProjectRecord(env, source, id) {

@@ -45,6 +45,7 @@ const shiftModal = document.querySelector("#shift-modal");
 const memberIdInput = document.querySelector("#member-id-input");
 const shiftSourceNote = document.querySelector("#shift-source-note");
 const memberSelect = document.querySelector("#member-select");
+const memberSelectField = document.querySelector("#member-select-field");
 const welcomeHeading = document.querySelector("#welcome-heading");
 const memberAvatar = document.querySelector("#member-avatar");
 const sidebarMemberName = document.querySelector("#sidebar-member-name");
@@ -306,12 +307,14 @@ function renderMemberSelect() {
   if (!state.members.length) {
     memberSelect.innerHTML = `<option value="">No members found</option>`;
     memberSelect.disabled = true;
+    memberSelectField?.classList.toggle("is-hidden", !canViewAsMembers());
     renderMemberView();
     return;
   }
 
   const canViewAs = canViewAsMembers();
   memberSelect.disabled = !canViewAs;
+  memberSelectField?.classList.toggle("is-hidden", !canViewAs);
   memberSelect.innerHTML = state.members
     .map((member) => {
       const displayName = member.preferredName || member.name;
@@ -735,24 +738,32 @@ function projectCardMarkup(project) {
     project.category,
     project.location,
   ].filter(Boolean);
+  const resources = project.resources || [];
+  const thumbnail = project.thumbnailUrl
+    ? `<img class="admin-project-thumb" src="${escapeHtml(project.thumbnailUrl)}" alt="" loading="lazy" />`
+    : `<div class="admin-project-thumb placeholder">${escapeHtml(project.source === "community" ? "Community" : "Project")}</div>`;
 
   return `
     <article class="admin-project-card">
-      <div>
-        <span class="event-meta">${escapeHtml(project.displayDate || "No date")} · ${escapeHtml(project.owner || "No owner")}</span>
-        <h3>${escapeHtml(project.title)}</h3>
-        ${
-          project.description
-            ? `<p>${escapeHtml(project.description).slice(0, 220)}${project.description.length > 220 ? "..." : ""}</p>`
-            : ""
-        }
-        <div class="admin-project-meta">
-          ${tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}
+      ${thumbnail}
+      <div class="admin-project-body">
+        <div>
+          <span class="event-meta">${escapeHtml(project.displayDate || "No date")} · ${escapeHtml(project.owner || "No owner")}</span>
+          <h3>${escapeHtml(project.title)}</h3>
+          ${
+            project.description
+              ? `<p>${escapeHtml(project.description).slice(0, 220)}${project.description.length > 220 ? "..." : ""}</p>`
+              : ""
+          }
+          <div class="admin-project-meta">
+            ${tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}
+            ${resources.length ? `<span class="tag">${resources.length} resource${resources.length === 1 ? "" : "s"}</span>` : ""}
+          </div>
         </div>
+        <a class="secondary-action link-action admin-project-action" href="${escapeHtml(project.detailUrl)}">
+          Open details
+        </a>
       </div>
-      <a class="secondary-action link-action admin-project-action" href="${escapeHtml(project.detailUrl)}">
-        Open details
-      </a>
     </article>
   `;
 }

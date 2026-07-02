@@ -4,6 +4,8 @@ const summary = document.querySelector("#detail-summary");
 const status = document.querySelector("#detail-status");
 const fields = document.querySelector("#detail-fields");
 const updates = document.querySelector("#detail-updates");
+const media = document.querySelector("#detail-media");
+const resources = document.querySelector("#detail-resources");
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -29,12 +31,34 @@ function fieldMarkup(label, value) {
   `;
 }
 
+function resourceMarkup(resource) {
+  const label = resource.label || resource.url || "Resource";
+  const type = resource.type || "link";
+  const preview =
+    resource.url && type === "image"
+      ? `<img src="${escapeHtml(resource.url)}" alt="" loading="lazy" />`
+      : `<span class="resource-file-type">${escapeHtml(type)}</span>`;
+
+  return `
+    <a
+      class="detail-resource-card"
+      href="${escapeHtml(resource.url || "#")}"
+      ${resource.url ? 'target="_blank" rel="noreferrer"' : 'aria-disabled="true"'}
+    >
+      ${preview}
+      <strong>${escapeHtml(label)}</strong>
+      ${resource.url ? `<small>${escapeHtml(resource.url)}</small>` : ""}
+    </a>
+  `;
+}
+
 function renderProject(project) {
   title.textContent = project.title || "Untitled project";
   source.textContent = project.typeLabel || project.source || "Admin project";
   status.textContent = project.status || "No status";
   summary.textContent = [
     project.displayDate,
+    project.endDateValue ? `Ends ${project.endDateValue}` : "",
     project.owner,
     project.location,
   ].filter(Boolean).join(" · ") || "No summary details";
@@ -57,6 +81,14 @@ function renderProject(project) {
   fields.innerHTML =
     detailFields.map(([label, value]) => fieldMarkup(label, value)).join("") ||
     `<p class="form-note">No details found for this item.</p>`;
+
+  media.innerHTML = project.thumbnailUrl
+    ? `<img class="detail-hero-image" src="${escapeHtml(project.thumbnailUrl)}" alt="" />`
+    : `<div class="detail-hero-placeholder">${escapeHtml(project.typeLabel || "Project")}</div>`;
+
+  resources.innerHTML = project.resources?.length
+    ? project.resources.map(resourceMarkup).join("")
+    : `<p class="form-note">No links or files found for this item.</p>`;
 
   updates.innerHTML = project.updates?.length
     ? project.updates
