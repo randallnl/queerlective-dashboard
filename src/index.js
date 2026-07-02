@@ -61,6 +61,8 @@ const COLUMNS = {
     amount: "numeric_mm2fgrdz",
     details: "text_mm2fb4c7",
     email: "text_mm2f5770",
+    fulfillmentStatus: "color_mm4wf14k",
+    orderDate: "pulse_log_mm4jc9jv",
   },
   projectEvents: {
     owner: "person",
@@ -191,6 +193,17 @@ const MOCK_PAYMENTS = [
     details: "CoLab Membership Subscription",
     amount: "$45.00",
     email: "ari@example.com",
+  },
+];
+
+const MOCK_SHOPIFY_ORDERS = [
+  {
+    id: "mock-order-01",
+    title: "Community print pack",
+    details: "Pickup order with assorted zines and prints.",
+    fulfillmentStatus: "Unfulfilled",
+    orderDate: "Jul 1, 2026",
+    orderDateValue: "2026-07-01",
   },
 ];
 
@@ -822,6 +835,26 @@ function normalizePayment(item) {
     details: getColumnText(item.column_values, COLUMNS.transactions.details),
     amount: formatMoney(getColumnText(item.column_values, COLUMNS.transactions.amount)),
     email: getColumnText(item.column_values, COLUMNS.transactions.email).toLowerCase(),
+  };
+}
+
+function normalizeShopifyOrder(item) {
+  const orderDateValue = dateFromCreationLog(
+    item.column_values,
+    COLUMNS.transactions.orderDate,
+    item.created_at?.slice(0, 10) || "",
+  );
+
+  return {
+    id: item.id,
+    title: item.name,
+    details: getColumnText(item.column_values, COLUMNS.transactions.details),
+    fulfillmentStatus: getColumnText(
+      item.column_values,
+      COLUMNS.transactions.fulfillmentStatus,
+    ),
+    orderDate: formatActivityDate(orderDateValue),
+    orderDateValue,
   };
 }
 
@@ -1479,6 +1512,49 @@ async function listPayments(env, memberId) {
     .sort((a, b) => (b.dateValue || "").localeCompare(a.dateValue || ""));
 }
 
+async function listOpenShopifyOrders(env, memberId) {
+  const cleanMemberId = String(memberId || "").trim();
+  if (!cleanMemberId) return [];
+
+  const members = await listMembers(env);
+  const member = members.find((item) => item.memberId === cleanMemberId);
+  if (isRetailOnlyMember(member)) return [];
+
+  const data = await mondayGraphQL(
+    env,
+    `query ShopifyOpenOrders($boardIds: [ID!]) {
+      boards(ids: $boardIds) {
+        items_page(limit: 500) {
+          items {
+            id
+            name
+            created_at
+            column_values(ids: [
+              "${COLUMNS.transactions.details}",
+              "${COLUMNS.transactions.fulfillmentStatus}",
+              "${COLUMNS.transactions.orderDate}"
+            ]) {
+              id
+              text
+              value
+            }
+          }
+        }
+      }
+    }`,
+    { boardIds: [BOARDS.shopifyTransactions] },
+  );
+
+  return (data.boards?.[0]?.items_page?.items || [])
+    .map(normalizeShopifyOrder)
+    .filter(
+      (order) =>
+        /unfulfilled/i.test(order.fulfillmentStatus) &&
+        !/colab membership subscription/i.test(order.details),
+    )
+    .sort((a, b) => (a.orderDateValue || "").localeCompare(b.orderDateValue || ""));
+}
+
 async function listProjectEvents(env, memberId, members = null) {
   const cleanMemberId = String(memberId || "").trim();
   const memberList = members || (cleanMemberId ? await listMembers(env) : []);
@@ -2002,6 +2078,23 @@ const apiRoutes = {
         source: "mock",
         warning: error.message,
         payments: MOCK_PAYMENTS,
+      });
+    }
+  },
+  "GET /api/orders": async (request, env) => {
+    const url = new URL(request.url);
+    let memberId = url.searchParams.get("memberId")?.trim();
+
+    try {
+      memberId = (await authorizeMemberRequest(request, env, memberId)).memberId;
+      return json({ source: "monday", orders: await listOpenShopifyOrders(env, memberId) });
+    } catch (error) {
+      if (error.status) return json({ error: error.message }, { status: error.status });
+
+      return json({
+        source: "mock",
+        warning: error.message,
+        orders: MOCK_SHOPIFY_ORDERS,
       });
     }
   },

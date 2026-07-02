@@ -86,6 +86,7 @@ input {
 .member-card small,
 .metric-grid small,
 .payment-list small,
+.order-list small,
 .shift-meta,
 .event-meta,
 .form-note,
@@ -497,6 +498,7 @@ main {
 .announcement-list,
 .activity-list,
 .payment-list,
+.order-list,
 .modal-shift-list {
   display: grid;
   gap: 12px;
@@ -507,7 +509,8 @@ main {
 .event-item,
 .announcement-item,
 .activity-item,
-.payment-item {
+.payment-item,
+.order-item {
   display: grid;
   gap: 10px;
   border: 1px solid var(--line);
@@ -572,6 +575,12 @@ main {
 .field-label input[readonly] {
   background: #f8f7f2;
   color: var(--muted);
+}
+
+.order-item p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 .form-note {

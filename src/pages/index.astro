@@ -41,6 +41,9 @@
           <a href="#payments" data-section-link="payments">
             <span>Dues</span>
           </a>
+          <a href="#orders" id="nav-orders" data-section-link="orders">
+            <span>Orders</span>
+          </a>
           <a href="#resources" data-section-link="resources">
             <span>Resources</span>
           </a>
@@ -223,6 +226,27 @@
               </div>
             </div>
             <div class="payment-list" id="payment-list"></div>
+          </section>
+
+          <section class="panel" id="orders" aria-labelledby="orders-title">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Shopify support</p>
+                <h2 id="orders-title">Open orders</h2>
+              </div>
+              <div class="panel-actions">
+                <a
+                  class="secondary-action link-action"
+                  href="https://admin.shopify.com/store/queerlective/orders"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Fulfill orders
+                </a>
+                <span class="status-pill" id="order-count">Loading</span>
+              </div>
+            </div>
+            <div class="order-list" id="order-list"></div>
           </section>
         </section>
 

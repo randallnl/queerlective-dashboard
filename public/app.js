@@ -12,6 +12,7 @@ const state = {
   activities: [],
   votes: [],
   payments: [],
+  orders: [],
   projectEvents: [],
   adminProjects: [],
   activitySummary: {
@@ -26,6 +27,7 @@ const state = {
   activitySource: "loading",
   voteSource: "loading",
   paymentSource: "loading",
+  orderSource: "loading",
   projectEventSource: "loading",
   adminProjectSource: "loading",
   calendarMonthOffset: 0,
@@ -36,6 +38,8 @@ const modalShiftList = document.querySelector("#modal-shift-list");
 const eventList = document.querySelector("#event-list");
 const announcementList = document.querySelector("#announcement-list");
 const paymentList = document.querySelector("#payment-list");
+const orderList = document.querySelector("#order-list");
+const orderCount = document.querySelector("#order-count");
 const voteCount = document.querySelector("#vote-count");
 const nextShift = document.querySelector("#next-shift");
 const nextShiftCard = document.querySelector("#next-shift-card");
@@ -58,8 +62,10 @@ const activitySource = document.querySelector("#activity-source");
 const activityBreakdown = document.querySelector("#activity-breakdown");
 const activityList = document.querySelector("#activity-list");
 const shiftSection = document.querySelector("#shifts");
+const orderSection = document.querySelector("#orders");
 const headerShiftAction = document.querySelector("#header-shift-action");
 const shiftNavLink = document.querySelector("#nav-shifts");
+const orderNavLink = document.querySelector("#nav-orders");
 const accessStatus = document.querySelector("#access-status");
 const accessEmail = document.querySelector("#access-email");
 const accessLogout = document.querySelector("#access-logout");
@@ -281,6 +287,7 @@ function renderMemberView() {
     memberEmail.textContent = "Choose a member to view their portal.";
     memberIdInput.value = "";
     setShiftVisibility(false);
+    setOrderVisibility(false);
     renderActivity();
     return;
   }
@@ -294,6 +301,7 @@ function renderMemberView() {
   memberEmail.textContent = `Member ID ${member.memberId}`;
   memberIdInput.value = member.memberId;
   setShiftVisibility(!isRetailOnlyMember(member));
+  setOrderVisibility(!isRetailOnlyMember(member));
 }
 
 function setShiftVisibility(isVisible) {
@@ -301,6 +309,11 @@ function setShiftVisibility(isVisible) {
   nextShiftCard?.classList.toggle("is-hidden", !isVisible);
   headerShiftAction?.classList.toggle("is-hidden", !isVisible);
   shiftNavLink?.classList.toggle("is-hidden", !isVisible);
+}
+
+function setOrderVisibility(isVisible) {
+  orderSection?.classList.toggle("is-hidden", !isVisible);
+  orderNavLink?.classList.toggle("is-hidden", !isVisible);
 }
 
 function renderMemberSelect() {
@@ -946,6 +959,37 @@ function renderPayments() {
     .join("");
 }
 
+function renderOrders() {
+  if (isRetailOnlyMember()) {
+    if (orderList) orderList.innerHTML = "";
+    if (orderCount) orderCount.textContent = "Hidden";
+    return;
+  }
+
+  if (orderCount) {
+    orderCount.textContent = `${state.orders.length} open`;
+  }
+
+  if (!state.orders.length) {
+    orderList.innerHTML = `<p class="form-note">No unfulfilled Shopify orders need CoLab support right now.</p>`;
+    return;
+  }
+
+  orderList.innerHTML = state.orders
+    .map(
+      (order) => `
+        <article class="order-item">
+          <div>
+            <strong>${escapeHtml(order.title || "Shopify order")}</strong>
+            <small>${escapeHtml(order.orderDate)} · ${escapeHtml(order.fulfillmentStatus || "Unfulfilled")}</small>
+            <p>${escapeHtml(order.details || "No order details listed.")}</p>
+          </div>
+        </article>
+      `,
+    )
+    .join("");
+}
+
 async function loadPayments() {
   const member = selectedMember();
 
@@ -973,6 +1017,37 @@ async function loadPayments() {
   }
 
   renderPayments();
+}
+
+async function loadOrders() {
+  const member = selectedMember();
+
+  if (!member?.memberId || isRetailOnlyMember(member)) {
+    state.orders = [];
+    state.orderSource = "loading";
+    renderOrders();
+    return;
+  }
+
+  orderList.innerHTML = `<p class="form-note">Loading open Shopify orders...</p>`;
+  if (orderCount) orderCount.textContent = "Loading";
+
+  try {
+    const response = await fetch(`/api/orders?memberId=${encodeURIComponent(member.memberId)}`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to load Shopify orders.");
+
+    state.orders = payload.orders || [];
+    state.orderSource = payload.source || "monday";
+  } catch (error) {
+    state.orders = [];
+    state.orderSource = "error";
+    orderList.innerHTML = `<p class="form-note">${escapeHtml(error.message)}</p>`;
+    if (orderCount) orderCount.textContent = "Error";
+    return;
+  }
+
+  renderOrders();
 }
 
 async function signUpForShift(shiftId, shiftBoardId, button) {
@@ -1093,6 +1168,7 @@ memberSelect.addEventListener("change", (event) => {
   loadActivity();
   loadVotes();
   loadPayments();
+  loadOrders();
   loadProjectEvents();
 });
 
@@ -1140,6 +1216,7 @@ async function init() {
   await loadActivity();
   await loadVotes();
   await loadPayments();
+  await loadOrders();
   await loadProjectEvents();
   loadShifts();
 }
