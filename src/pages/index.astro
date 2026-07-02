@@ -44,6 +44,14 @@
           <a href="#resources" data-section-link="resources">
             <span>Resources</span>
           </a>
+          <a
+            href="#project-management"
+            id="nav-project-management"
+            class="is-hidden"
+            data-section-link="project-management"
+          >
+            <span>Admin Projects</span>
+          </a>
         </nav>
         <div class="member-card">
           <span class="avatar" id="member-avatar">--</span>
@@ -253,6 +261,41 @@
               <span>Propose a community-led event for CoLab support.</span>
             </a>
           </div>
+        </section>
+
+        <section
+          class="panel admin-panel is-hidden"
+          id="project-management"
+          aria-labelledby="project-management-title"
+        >
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Admin tools</p>
+              <h2 id="project-management-title">Project management</h2>
+            </div>
+            <span class="status-pill" id="project-management-count">Loading</span>
+          </div>
+          <div class="admin-filters" aria-label="Project filters">
+            <label class="compact-field" for="project-source-filter">
+              Source
+              <select id="project-source-filter">
+                <option value="all">All sources</option>
+                <option value="project">Project board</option>
+                <option value="community">Community-led</option>
+              </select>
+            </label>
+            <label class="compact-field" for="project-status-filter">
+              Status
+              <select id="project-status-filter">
+                <option value="all">All statuses</option>
+              </select>
+            </label>
+            <label class="compact-field" for="project-search">
+              Search
+              <input id="project-search" type="search" placeholder="Project, owner, location" />
+            </label>
+          </div>
+          <div class="admin-project-list" id="admin-project-list"></div>
         </section>
       </main>
     </div>

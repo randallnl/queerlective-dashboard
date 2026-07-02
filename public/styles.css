@@ -40,7 +40,8 @@ a {
 }
 
 button,
-select {
+select,
+input {
   font: inherit;
 }
 
@@ -128,6 +129,67 @@ main {
   display: grid;
   gap: 24px;
   padding: 28px clamp(18px, 4vw, 44px) 44px;
+}
+
+.detail-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.detail-header {
+  display: grid;
+  gap: 16px;
+}
+
+.detail-header h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  letter-spacing: 0;
+}
+
+.detail-summary {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+  gap: 16px;
+}
+
+.detail-fields {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.detail-field {
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.detail-field span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.detail-field strong {
+  overflow-wrap: anywhere;
+  font-size: 0.96rem;
+  line-height: 1.45;
+}
+
+.detail-field a {
+  color: var(--teal-dark);
+  text-decoration: underline;
 }
 
 .topbar,
@@ -596,6 +658,61 @@ select {
   padding: 0 12px;
 }
 
+input[type="search"] {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  padding: 0 12px;
+}
+
+.admin-filters {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.5fr) minmax(160px, 0.5fr) minmax(240px, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.admin-project-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.admin-project-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+}
+
+.admin-project-card h3 {
+  margin: 0 0 5px;
+  font-size: 1rem;
+}
+
+.admin-project-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.admin-project-card p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.admin-project-action {
+  align-self: center;
+  white-space: nowrap;
+}
+
 .segmented-control {
   display: flex;
   gap: 6px;
@@ -821,7 +938,9 @@ dialog::backdrop {
 
   .content-grid,
   .coverage-calendar-grid,
-  .lower-grid {
+  .lower-grid,
+  .admin-filters,
+  .detail-grid {
     grid-template-columns: 1fr;
   }
 
@@ -848,8 +967,13 @@ dialog::backdrop {
     flex-direction: column;
   }
 
-  .shift-item {
+  .shift-item,
+  .admin-project-card {
     grid-template-columns: 1fr;
+  }
+
+  .admin-project-action {
+    width: 100%;
   }
 
   .metric-grid,

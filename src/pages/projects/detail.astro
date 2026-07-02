@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Project details · CoLab Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="detail-shell">
+      <header class="detail-header">
+        <a class="secondary-action link-action" href="/#project-management">Back to projects</a>
+        <div>
+          <p class="eyebrow" id="detail-source">Admin project</p>
+          <h1 id="detail-title">Loading project</h1>
+          <p id="detail-summary" class="detail-summary">Fetching monday details...</p>
+        </div>
+      </header>
+
+      <section class="detail-grid">
+        <article class="panel detail-main">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Details</p>
+              <h2>Project overview</h2>
+            </div>
+            <span class="status-pill" id="detail-status">Loading</span>
+          </div>
+          <div class="detail-fields" id="detail-fields"></div>
+        </article>
+
+        <aside class="panel detail-sidebar">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Updates</p>
+              <h2>Latest notes</h2>
+            </div>
+          </div>
+          <div class="activity-list" id="detail-updates"></div>
+        </aside>
+      </section>
+    </main>
+    <script src="/project-detail.js" is:inline></script>
+  </body>
+</html>

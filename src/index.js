@@ -63,17 +63,35 @@ const COLUMNS = {
     email: "text_mm2f5770",
   },
   projectEvents: {
+    owner: "person",
+    strategicGoal: "dropdown_mm0smk1",
+    category: "color_mm0srja3",
+    priority: "color_mm0sh4fe",
     startDate: "date_mkns6cak",
     endDate: "date_mm171v9p",
+    status: "status",
     location: "dropdown_mknqezw8",
+    posters: "file_mknscbex",
+    filesLink: "file_mkpbye8s",
+    registration: "link_mkppdhq5",
+    postEventSurvey: "link_mkpp7m53",
+    description: "text_mm2vbpn3",
+    googleCalendarEvent: "integration_mm17v8nx",
+    spaceReservation: "color_mm2vwpkb",
   },
   communityEvents: {
+    links: "link_mm345aqv",
     poster: "upload_file_Mjj7BNI5",
     organizer: "short_text_Mjj7ibQU",
     organizerEmail: "email_mkp6jep",
+    additionalOrganizers: "short_text_Mjj7sypL",
     description: "long_text_Mjj74ax2",
+    toolEquipmentRequests: "long_text_Mjj7yY69",
     materialsRequest: "number_Mjj7dbxa",
+    supportFundsUse: "long_text_mkmt1fs8",
     requestedDate: "date_Mjj7b71V",
+    canvaLink: "link_mkn89n3g",
+    additionalInfo: "long_text_1_Mjj7QGiT",
     processStatus: "status_mkmxzk3x",
     submissionId: "pulse_id_mm2twrhw",
     submittedAt: "pulse_log_mm4wyjyr",
@@ -233,6 +251,32 @@ function getColumnValue(columnValues, columnId) {
   } catch {
     return null;
   }
+}
+
+function columnTextOrValue(columnValues, columnId) {
+  const text = getColumnText(columnValues, columnId);
+  const value = getColumnValue(columnValues, columnId);
+
+  if (text) return text;
+  if (value?.url) return value.url;
+  if (value?.linkedPulseIds) return value.linkedPulseIds.join(", ");
+  if (Array.isArray(value?.files)) {
+    return value.files
+      .map((file) => file.name || file.assetId || file.id)
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  return "";
+}
+
+function normalizeUpdates(updates = []) {
+  return updates.map((update) => ({
+    id: update.id,
+    body: String(update.body || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim(),
+    createdAt: update.created_at || "",
+    creator: update.creator?.name || "",
+  }));
 }
 
 function escapeHtml(value) {
@@ -492,6 +536,18 @@ async function authorizeMemberRequest(request, env, requestedMemberId) {
     ...session,
     memberId: session.member.memberId,
   };
+}
+
+async function requireAdminSession(request, env) {
+  const session = await requireMatchedAccessMember(request, env);
+
+  if (!session.isAdmin) {
+    const error = new Error("Admin access is required.");
+    error.status = 403;
+    throw error;
+  }
+
+  return session;
 }
 
 function memberIdFromPerson(personText) {
@@ -849,6 +905,92 @@ function applyCommunityConsentStatus(submission, responses = []) {
     ...submission,
     consentStatus,
     meta: `${consentStatus} · Organized by ${organizerMeta}.`,
+  };
+}
+
+function normalizeAdminProjectItem(item) {
+  const startColumn = getColumnValue(item.column_values, COLUMNS.projectEvents.startDate);
+  const endColumn = getColumnValue(item.column_values, COLUMNS.projectEvents.endDate);
+  const startDate =
+    startColumn?.date || getColumnText(item.column_values, COLUMNS.projectEvents.startDate);
+  const endDate =
+    endColumn?.date || getColumnText(item.column_values, COLUMNS.projectEvents.endDate);
+  const status = getColumnText(item.column_values, COLUMNS.projectEvents.status);
+  const category = getColumnText(item.column_values, COLUMNS.projectEvents.category);
+  const priority = getColumnText(item.column_values, COLUMNS.projectEvents.priority);
+  const location = getColumnText(item.column_values, COLUMNS.projectEvents.location);
+
+  return {
+    id: item.id,
+    source: "project",
+    title: item.name,
+    dateValue: startDate,
+    displayDate: formatActivityDate(startDate),
+    endDateValue: endDate,
+    typeLabel: "Project/Event",
+    owner: getColumnText(item.column_values, COLUMNS.projectEvents.owner),
+    status,
+    category,
+    priority,
+    location,
+    description: getColumnText(item.column_values, COLUMNS.projectEvents.description),
+    detailUrl: `/projects/detail/?source=project&id=${encodeURIComponent(item.id)}`,
+    updates: normalizeUpdates(item.updates || []),
+    details: {
+      strategicGoal: getColumnText(item.column_values, COLUMNS.projectEvents.strategicGoal),
+      spaceReservation: getColumnText(item.column_values, COLUMNS.projectEvents.spaceReservation),
+      registration: columnTextOrValue(item.column_values, COLUMNS.projectEvents.registration),
+      postEventSurvey: columnTextOrValue(item.column_values, COLUMNS.projectEvents.postEventSurvey),
+      googleCalendarEvent: columnTextOrValue(
+        item.column_values,
+        COLUMNS.projectEvents.googleCalendarEvent,
+      ),
+      posters: columnTextOrValue(item.column_values, COLUMNS.projectEvents.posters),
+      filesLink: columnTextOrValue(item.column_values, COLUMNS.projectEvents.filesLink),
+    },
+  };
+}
+
+function normalizeAdminCommunityItem(item, members = []) {
+  const submission = normalizeCommunityEventSubmission(item, members);
+
+  return {
+    id: item.id,
+    source: "community",
+    title: item.name || "Community-led event proposal",
+    dateValue: submission.dateValue,
+    displayDate: formatActivityDate(submission.dateValue),
+    endDateValue: submission.dateValue,
+    typeLabel: "Community-led",
+    owner: submission.organizerMemberName || submission.organizer,
+    status: submission.processStatus,
+    category: "Community proposal",
+    priority: "",
+    location: submission.spaceRequested,
+    description: submission.details,
+    detailUrl: `/projects/detail/?source=community&id=${encodeURIComponent(item.id)}`,
+    updates: normalizeUpdates(item.updates || []),
+    details: {
+      projectLead: submission.organizer,
+      projectLeadEmail: submission.organizerEmail,
+      additionalOrganizers: getColumnText(
+        item.column_values,
+        COLUMNS.communityEvents.additionalOrganizers,
+      ),
+      toolEquipmentRequests: getColumnText(
+        item.column_values,
+        COLUMNS.communityEvents.toolEquipmentRequests,
+      ),
+      requestedSupportAmount: submission.materialsRequest,
+      supportFundsUse: getColumnText(item.column_values, COLUMNS.communityEvents.supportFundsUse),
+      links: columnTextOrValue(item.column_values, COLUMNS.communityEvents.links),
+      canvaLink: columnTextOrValue(item.column_values, COLUMNS.communityEvents.canvaLink),
+      poster: columnTextOrValue(item.column_values, COLUMNS.communityEvents.poster),
+      additionalInfo: getColumnText(item.column_values, COLUMNS.communityEvents.additionalInfo),
+      submissionId: submission.submissionId,
+      submittedAt: submission.submitDate,
+      consentStatus: submission.consentStatus,
+    },
   };
 }
 
@@ -1303,6 +1445,132 @@ async function listCalendarEvents(env, memberId) {
   );
 }
 
+async function listAdminProjectItems(env) {
+  const data = await mondayGraphQL(
+    env,
+    `query AdminProjectItems($boardIds: [ID!]) {
+      boards(ids: $boardIds) {
+        items_page(limit: 500) {
+          items {
+            id
+            name
+            updates(limit: 5) {
+              id
+              body
+              created_at
+              creator {
+                name
+              }
+            }
+            column_values(ids: [
+              "${COLUMNS.projectEvents.owner}",
+              "${COLUMNS.projectEvents.strategicGoal}",
+              "${COLUMNS.projectEvents.category}",
+              "${COLUMNS.projectEvents.priority}",
+              "${COLUMNS.projectEvents.startDate}",
+              "${COLUMNS.projectEvents.endDate}",
+              "${COLUMNS.projectEvents.status}",
+              "${COLUMNS.projectEvents.location}",
+              "${COLUMNS.projectEvents.posters}",
+              "${COLUMNS.projectEvents.filesLink}",
+              "${COLUMNS.projectEvents.registration}",
+              "${COLUMNS.projectEvents.postEventSurvey}",
+              "${COLUMNS.projectEvents.description}",
+              "${COLUMNS.projectEvents.googleCalendarEvent}",
+              "${COLUMNS.projectEvents.spaceReservation}"
+            ]) {
+              id
+              text
+              value
+            }
+          }
+        }
+      }
+    }`,
+    { boardIds: [BOARDS.projectEvents] },
+  );
+
+  return (data.boards?.[0]?.items_page?.items || [])
+    .map(normalizeAdminProjectItem)
+    .sort((a, b) => (a.dateValue || "9999-12-31").localeCompare(b.dateValue || "9999-12-31"));
+}
+
+async function listAdminCommunityItems(env, members = null) {
+  const memberList = members || (await listMembers(env));
+  const data = await mondayGraphQL(
+    env,
+    `query AdminCommunityItems($boardIds: [ID!]) {
+      boards(ids: $boardIds) {
+        items_page(limit: 500) {
+          items {
+            id
+            name
+            created_at
+            updates(limit: 5) {
+              id
+              body
+              created_at
+              creator {
+                name
+              }
+            }
+            column_values(ids: [
+              "${COLUMNS.communityEvents.links}",
+              "${COLUMNS.communityEvents.poster}",
+              "${COLUMNS.communityEvents.organizer}",
+              "${COLUMNS.communityEvents.organizerEmail}",
+              "${COLUMNS.communityEvents.additionalOrganizers}",
+              "${COLUMNS.communityEvents.description}",
+              "${COLUMNS.communityEvents.toolEquipmentRequests}",
+              "${COLUMNS.communityEvents.materialsRequest}",
+              "${COLUMNS.communityEvents.supportFundsUse}",
+              "${COLUMNS.communityEvents.requestedDate}",
+              "${COLUMNS.communityEvents.canvaLink}",
+              "${COLUMNS.communityEvents.additionalInfo}",
+              "${COLUMNS.communityEvents.spaceRequested}",
+              "${COLUMNS.communityEvents.processStatus}",
+              "${COLUMNS.communityEvents.submissionId}",
+              "${COLUMNS.communityEvents.submittedAt}"
+            ]) {
+              id
+              text
+              value
+            }
+          }
+        }
+      }
+    }`,
+    { boardIds: [BOARDS.communityEventSubmissions] },
+  );
+
+  return (data.boards?.[0]?.items_page?.items || [])
+    .map((item) => normalizeAdminCommunityItem(item, memberList))
+    .sort((a, b) => (a.dateValue || "9999-12-31").localeCompare(b.dateValue || "9999-12-31"));
+}
+
+async function listAdminProjectRecords(env) {
+  const members = await listMembers(env);
+  const [projectItems, communityItems] = await Promise.all([
+    listAdminProjectItems(env),
+    listAdminCommunityItems(env, members),
+  ]);
+
+  return [...projectItems, ...communityItems].sort((a, b) =>
+    (a.dateValue || "9999-12-31").localeCompare(b.dateValue || "9999-12-31"),
+  );
+}
+
+async function getAdminProjectRecord(env, source, id) {
+  const records =
+    source === "project"
+      ? await listAdminProjectItems(env)
+      : source === "community"
+        ? await listAdminCommunityItems(env)
+        : [];
+
+  return records.find((record) => record.id === id) || null;
+}
+
 async function submitVote(request, env) {
   const { voteId, motion, response, comment, memberId } = await request.json();
   const cleanVoteId = String(voteId || "").trim();
@@ -1656,6 +1924,33 @@ const apiRoutes = {
         warning: error.message,
         events: [...MOCK_PROJECT_EVENTS, ...MOCK_COMMUNITY_EVENTS],
       });
+    }
+  },
+  "GET /api/admin/projects": async (request, env) => {
+    try {
+      await requireAdminSession(request, env);
+      return json({ source: "monday", projects: await listAdminProjectRecords(env) });
+    } catch (error) {
+      return json({ error: error.message }, { status: error.status || 500 });
+    }
+  },
+  "GET /api/admin/projects/detail": async (request, env) => {
+    const url = new URL(request.url);
+    const source = url.searchParams.get("source")?.trim();
+    const id = url.searchParams.get("id")?.trim();
+
+    try {
+      await requireAdminSession(request, env);
+      if (!source || !id) {
+        return json({ error: "source and id are required." }, { status: 400 });
+      }
+
+      const project = await getAdminProjectRecord(env, source, id);
+      if (!project) return json({ error: "Project not found." }, { status: 404 });
+
+      return json({ source: "monday", project });
+    } catch (error) {
+      return json({ error: error.message }, { status: error.status || 500 });
     }
   },
   "POST /api/votes": submitVote,

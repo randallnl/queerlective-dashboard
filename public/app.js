@@ -13,6 +13,7 @@ const state = {
   votes: [],
   payments: [],
   projectEvents: [],
+  adminProjects: [],
   activitySummary: {
     total: 0,
     thisMonth: 0,
@@ -26,6 +27,7 @@ const state = {
   voteSource: "loading",
   paymentSource: "loading",
   projectEventSource: "loading",
+  adminProjectSource: "loading",
   calendarMonthOffset: 0,
 };
 
@@ -60,6 +62,13 @@ const shiftNavLink = document.querySelector("#nav-shifts");
 const accessStatus = document.querySelector("#access-status");
 const accessEmail = document.querySelector("#access-email");
 const accessLogout = document.querySelector("#access-logout");
+const projectManagementSection = document.querySelector("#project-management");
+const projectManagementNav = document.querySelector("#nav-project-management");
+const adminProjectList = document.querySelector("#admin-project-list");
+const projectManagementCount = document.querySelector("#project-management-count");
+const projectSourceFilter = document.querySelector("#project-source-filter");
+const projectStatusFilter = document.querySelector("#project-status-filter");
+const projectSearch = document.querySelector("#project-search");
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -76,6 +85,10 @@ function selectedMember() {
 
 function canViewAsMembers() {
   return state.session.canViewAs !== false;
+}
+
+function isAdminSession() {
+  return state.session.isAdmin === true;
 }
 
 function isRetailOnlyMember(member = selectedMember()) {
@@ -335,6 +348,7 @@ function renderAccessSession() {
     accessStatus.textContent = "Local preview";
     accessEmail.textContent = "Zero Trust login appears after deployment";
     accessLogout?.classList.add("is-hidden");
+    setAdminVisibility(isAdminSession());
     return;
   }
 
@@ -343,6 +357,12 @@ function renderAccessSession() {
     ? `${memberName} · ${state.session.email}`
     : state.session.email;
   accessLogout?.classList.remove("is-hidden");
+  setAdminVisibility(isAdminSession());
+}
+
+function setAdminVisibility(isVisible) {
+  projectManagementSection?.classList.toggle("is-hidden", !isVisible);
+  projectManagementNav?.classList.toggle("is-hidden", !isVisible);
 }
 
 async function loadSession() {
@@ -667,6 +687,126 @@ async function loadProjectEvents() {
   renderEvents(calendarFilter.value);
 }
 
+function projectMatchesFilters(project) {
+  const source = projectSourceFilter?.value || "all";
+  const status = projectStatusFilter?.value || "all";
+  const query = (projectSearch?.value || "").trim().toLowerCase();
+  const haystack = [
+    project.title,
+    project.owner,
+    project.location,
+    project.status,
+    project.category,
+    project.priority,
+    project.description,
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    (source === "all" || project.source === source) &&
+    (status === "all" || project.status === status) &&
+    (!query || haystack.includes(query))
+  );
+}
+
+function populateProjectStatusFilter() {
+  if (!projectStatusFilter) return;
+
+  const currentValue = projectStatusFilter.value || "all";
+  const statuses = Array.from(
+    new Set(state.adminProjects.map((project) => project.status).filter(Boolean)),
+  ).sort((a, b) => a.localeCompare(b));
+
+  projectStatusFilter.innerHTML = `
+    <option value="all">All statuses</option>
+    ${statuses
+      .map((status) => `<option value="${escapeHtml(status)}">${escapeHtml(status)}</option>`)
+      .join("")}
+  `;
+  projectStatusFilter.value = statuses.includes(currentValue) ? currentValue : "all";
+}
+
+function projectCardMarkup(project) {
+  const tags = [
+    project.typeLabel,
+    project.status,
+    project.priority,
+    project.category,
+    project.location,
+  ].filter(Boolean);
+
+  return `
+    <article class="admin-project-card">
+      <div>
+        <span class="event-meta">${escapeHtml(project.displayDate || "No date")} · ${escapeHtml(project.owner || "No owner")}</span>
+        <h3>${escapeHtml(project.title)}</h3>
+        ${
+          project.description
+            ? `<p>${escapeHtml(project.description).slice(0, 220)}${project.description.length > 220 ? "..." : ""}</p>`
+            : ""
+        }
+        <div class="admin-project-meta">
+          ${tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}
+        </div>
+      </div>
+      <a class="secondary-action link-action admin-project-action" href="${escapeHtml(project.detailUrl)}">
+        Open details
+      </a>
+    </article>
+  `;
+}
+
+function renderAdminProjects() {
+  if (!adminProjectList || !projectManagementCount) return;
+
+  if (!isAdminSession()) {
+    adminProjectList.innerHTML = "";
+    projectManagementCount.textContent = "Admin only";
+    return;
+  }
+
+  populateProjectStatusFilter();
+  const filteredProjects = state.adminProjects.filter(projectMatchesFilters);
+  projectManagementCount.textContent = `${filteredProjects.length} shown`;
+
+  if (!filteredProjects.length) {
+    adminProjectList.innerHTML = `<p class="form-note">No projects match these filters.</p>`;
+    return;
+  }
+
+  adminProjectList.innerHTML = filteredProjects
+    .slice(0, 12)
+    .map(projectCardMarkup)
+    .join("");
+}
+
+async function loadAdminProjects() {
+  if (!isAdminSession()) {
+    state.adminProjects = [];
+    renderAdminProjects();
+    return;
+  }
+
+  adminProjectList.innerHTML = `<p class="form-note">Loading admin projects...</p>`;
+
+  try {
+    const response = await fetch("/api/admin/projects");
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to load projects.");
+
+    state.adminProjects = payload.projects || [];
+    state.adminProjectSource = payload.source || "monday";
+  } catch (error) {
+    state.adminProjects = [];
+    state.adminProjectSource = "error";
+    adminProjectList.innerHTML = `<p class="form-note">${escapeHtml(error.message)}</p>`;
+    return;
+  }
+
+  renderAdminProjects();
+}
+
 function responseCount(vote, response) {
   return vote.responseCounts?.[response] || 0;
 }
@@ -961,6 +1101,11 @@ shiftWindow.addEventListener("change", () => {
   renderShifts();
 });
 
+[projectSourceFilter, projectStatusFilter, projectSearch].forEach((control) => {
+  control?.addEventListener("input", renderAdminProjects);
+  control?.addEventListener("change", renderAdminProjects);
+});
+
 document.querySelectorAll("[data-calendar-shift]").forEach((button) => {
   button.addEventListener("click", () => {
     state.calendarMonthOffset += Number(button.dataset.calendarShift || 0);
@@ -980,6 +1125,7 @@ document.querySelectorAll("[data-section-link]").forEach((link) => {
 async function init() {
   await loadSession();
   await loadMembers();
+  await loadAdminProjects();
   await loadActivity();
   await loadVotes();
   await loadPayments();
