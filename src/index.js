@@ -7,6 +7,7 @@ const BOARDS = {
   voteLog: 18411164142,
   shopifyTransactions: 18410480642,
   projectEvents: 8390893779,
+  communityEventSubmissions: 8052311890,
 };
 
 const VOTE_TYPES = [
@@ -66,9 +67,21 @@ const COLUMNS = {
     endDate: "date_mm171v9p",
     location: "dropdown_mknqezw8",
   },
+  communityEvents: {
+    poster: "upload_file_Mjj7BNI5",
+    organizer: "short_text_Mjj7ibQU",
+    organizerEmail: "email_mkp6jep",
+    description: "long_text_Mjj74ax2",
+    materialsRequest: "number_Mjj7dbxa",
+    requestedDate: "date_Mjj7b71V",
+    processStatus: "status_mkmxzk3x",
+    submissionId: "pulse_id_mm2twrhw",
+    submittedAt: "pulse_log_mm4wyjyr",
+  },
 };
 
 const MEMBER_VISIBLE_LOCATIONS = /board room|colab|community room|gym/i;
+const APPROVED_STATUS = /approved/i;
 
 const MOCK_SHIFTS = [
   {
@@ -176,6 +189,25 @@ const MOCK_PROJECT_EVENTS = [
   },
 ];
 
+const MOCK_COMMUNITY_EVENTS = [
+  {
+    id: "mock-community-event-01",
+    title: "Community zine swap proposal",
+    date: "Jul 24",
+    dateValue: "2026-07-24",
+    endDateValue: "2026-07-24",
+    time: "Community proposal",
+    type: "community",
+    organizer: "Ari Rivera",
+    organizerEmail: "ari@example.com",
+    organizerMemberId: "mock-member-01",
+    processStatus: "Pending",
+    consentStatus: "Pending consent",
+    meta: "Pending consent · Organized by Ari Rivera.",
+    details: "Preview community-led event proposal.",
+  },
+];
+
 function json(data, init = {}) {
   return Response.json(data, {
     ...init,
@@ -267,6 +299,10 @@ function isAdminMember(member) {
   return /admin/i.test(member?.membershipType || "");
 }
 
+function isRetailOnlyMember(member) {
+  return /retail only member/i.test(member?.membershipType || "");
+}
+
 function accessEmail(request) {
   return (
     request.headers.get("cf-access-authenticated-user-email") ||
@@ -280,6 +316,30 @@ function accessEmail(request) {
 function findMemberByEmail(members, email) {
   if (!email) return null;
   return members.find((member) => memberEmails(member).includes(email)) || null;
+}
+
+function addDays(dateValue, days) {
+  if (!dateValue) return "";
+
+  const date = new Date(`${dateValue}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return "";
+
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function dateFromCreationLog(columnValues, columnId, fallback = "") {
+  const columnValue = getColumnValue(columnValues, columnId);
+  const text = getColumnText(columnValues, columnId);
+  const rawDate =
+    columnValue?.created_at ||
+    columnValue?.date ||
+    columnValue?.time ||
+    columnValue?.value ||
+    text;
+  const match = String(rawDate || "").match(/\d{4}-\d{2}-\d{2}/);
+
+  return match?.[0] || fallback;
 }
 
 function memberEmailRequiredError() {
@@ -573,11 +633,7 @@ function normalizeVoteMotion(item) {
   const normalized = normalizeActivity(item);
   const voteType = normalized.activityType;
   const submitDate = normalized.submitDate;
-  const closeDate = submitDate ? new Date(`${submitDate}T00:00:00Z`) : null;
-
-  if (closeDate && voteType === "Consent Vote") {
-    closeDate.setUTCDate(closeDate.getUTCDate() + 48);
-  }
+  const closesAt = voteType === "Consent Vote" ? addDays(submitDate, 48) : "";
 
   return {
     id: item.id,
@@ -586,10 +642,10 @@ function normalizeVoteMotion(item) {
     voteType,
     submitDate,
     displayDate: normalized.displayDate,
-    closesAt: closeDate ? closeDate.toISOString().slice(0, 10) : "",
+    closesAt,
     closesLabel:
-      voteType === "Consent Vote" && closeDate
-        ? `Auto-approves ${formatActivityDate(closeDate.toISOString().slice(0, 10))}`
+      voteType === "Consent Vote" && closesAt
+        ? `Auto-approves ${formatActivityDate(closesAt)}`
         : "Open for member votes",
     requiresComment: voteType === "Consent Vote",
   };
@@ -643,6 +699,129 @@ function normalizeProjectEvent(item) {
     location,
     meta: `${location || "Location TBD"}${isMemberVisible ? "" : " · Admin only"}`,
     adminOnly: !isMemberVisible,
+  };
+}
+
+function normalizeCommunityEventSubmission(item, members = []) {
+  const requestedDateColumn = getColumnValue(
+    item.column_values,
+    COLUMNS.communityEvents.requestedDate,
+  );
+  const requestedDate =
+    requestedDateColumn?.date ||
+    getColumnText(item.column_values, COLUMNS.communityEvents.requestedDate);
+  const organizer = getColumnText(item.column_values, COLUMNS.communityEvents.organizer);
+  const organizerEmail = getColumnText(
+    item.column_values,
+    COLUMNS.communityEvents.organizerEmail,
+  ).toLowerCase();
+  const organizerMember = findMemberByEmail(members, organizerEmail);
+  const processStatus =
+    getColumnText(item.column_values, COLUMNS.communityEvents.processStatus) || "Pending";
+  const submitDate = dateFromCreationLog(
+    item.column_values,
+    COLUMNS.communityEvents.submittedAt,
+    item.created_at?.slice(0, 10) || "",
+  );
+  const closesAt = addDays(submitDate, 48);
+  const description = getColumnText(
+    item.column_values,
+    COLUMNS.communityEvents.description,
+  );
+  const materialsRequest = getColumnText(
+    item.column_values,
+    COLUMNS.communityEvents.materialsRequest,
+  );
+  const consentStatus = APPROVED_STATUS.test(processStatus)
+    ? "Approved"
+    : "Pending consent";
+  const organizerLabel =
+    organizerMember?.preferredName || organizerMember?.name || organizer || "Community member";
+  const organizerMeta = organizerMember
+    ? `${organizerLabel} (CoLab member)`
+    : organizerLabel;
+
+  return {
+    id: item.id,
+    title: item.name || "Community-led event proposal",
+    date: formatShiftDate(requestedDate, item.name),
+    dateValue: requestedDate,
+    endDateValue: requestedDate,
+    time: "Community proposal",
+    type: "community",
+    organizer,
+    organizerEmail,
+    organizerMemberId: organizerMember?.memberId || "",
+    organizerMemberName: organizerMember?.preferredName || organizerMember?.name || "",
+    processStatus,
+    consentStatus,
+    submitDate,
+    displayDate: formatActivityDate(submitDate),
+    closesAt,
+    closesLabel: closesAt
+      ? `Auto-approves ${formatActivityDate(closesAt)}`
+      : "Consent vote pending",
+    details: description,
+    materialsRequest,
+    submissionId:
+      getColumnText(item.column_values, COLUMNS.communityEvents.submissionId) || item.id,
+    meta: `${consentStatus} · Organized by ${organizerMeta}.`,
+  };
+}
+
+function communitySubmissionToVoteMotion(submission) {
+  const detailParts = [
+    submission.dateValue
+      ? `Requested date: ${formatActivityDate(submission.dateValue)}.`
+      : "",
+    submission.organizer || submission.organizerMemberName
+      ? `Organizer: ${submission.organizerMemberName || submission.organizer}.`
+      : "",
+    submission.materialsRequest
+      ? `Materials request: ${submission.materialsRequest}.`
+      : "",
+    submission.details || "",
+  ].filter(Boolean);
+
+  return {
+    id: submission.id,
+    question: `Community-led event: ${submission.title}`,
+    details: detailParts.join(" "),
+    voteType: "Consent Vote",
+    submitDate: submission.submitDate,
+    displayDate: submission.displayDate,
+    closesAt: submission.closesAt,
+    closesLabel: submission.closesLabel,
+    requiresComment: true,
+    statusOverride: submission.consentStatus === "Approved" ? "Approved" : "",
+  };
+}
+
+function applyCommunityConsentStatus(submission, responses = []) {
+  const nowValue = new Date().toISOString().slice(0, 10);
+  const question = `Community-led event: ${submission.title}`;
+  const motionResponses = responses.filter(
+    (response) =>
+      response.voteId === submission.id ||
+      (!response.voteId && response.question === question),
+  );
+  const objectionCount = motionResponses.filter(
+    (response) => response.response === VOTE_RESPONSES.dontApprove,
+  ).length;
+  const isApproved =
+    APPROVED_STATUS.test(submission.processStatus) ||
+    (submission.closesAt && submission.closesAt < nowValue && objectionCount === 0);
+  const consentStatus = isApproved ? "Approved" : "Pending consent";
+  const organizerLabel =
+    submission.organizerMemberName || submission.organizer || "Community member";
+  const organizerMeta = submission.organizerMemberId
+    ? `${organizerLabel} (CoLab member)`
+    : organizerLabel;
+
+  return {
+    ...submission,
+    consentStatus,
+    meta: `${consentStatus} · Organized by ${organizerMeta}.`,
   };
 }
 
@@ -812,6 +991,74 @@ async function listActivity(env, memberId) {
   };
 }
 
+async function listCommunityEventSubmissions(env, members = null) {
+  const memberList = members || (await listMembers(env));
+  const data = await mondayGraphQL(
+    env,
+    `query CommunityEventSubmissions($boardIds: [ID!]) {
+      boards(ids: $boardIds) {
+        items_page(limit: 200) {
+          items {
+            id
+            name
+            created_at
+            column_values(ids: [
+              "${COLUMNS.communityEvents.organizer}",
+              "${COLUMNS.communityEvents.organizerEmail}",
+              "${COLUMNS.communityEvents.description}",
+              "${COLUMNS.communityEvents.materialsRequest}",
+              "${COLUMNS.communityEvents.requestedDate}",
+              "${COLUMNS.communityEvents.processStatus}",
+              "${COLUMNS.communityEvents.submissionId}",
+              "${COLUMNS.communityEvents.submittedAt}"
+            ]) {
+              id
+              text
+              value
+            }
+          }
+        }
+      }
+    }`,
+    { boardIds: [BOARDS.communityEventSubmissions] },
+  );
+
+  return (data.boards?.[0]?.items_page?.items || [])
+    .map((item) => normalizeCommunityEventSubmission(item, memberList))
+    .filter((submission) => submission.dateValue)
+    .sort((a, b) => (a.dateValue || "").localeCompare(b.dateValue || ""));
+}
+
+async function listVoteResponses(env) {
+  const data = await mondayGraphQL(
+    env,
+    `query CoLabVoteResponses($boardIds: [ID!]) {
+      boards(ids: $boardIds) {
+        items_page(limit: 500) {
+          items {
+            id
+            name
+            column_values(ids: [
+              "${COLUMNS.votes.response}",
+              "${COLUMNS.votes.comment}",
+              "${COLUMNS.votes.motion}",
+              "${COLUMNS.votes.memberId}",
+              "${COLUMNS.votes.voteId}"
+            ]) {
+              id
+              text
+              value
+            }
+          }
+        }
+      }
+    }`,
+    { boardIds: [BOARDS.voteLog] },
+  );
+
+  return (data.boards?.[0]?.items_page?.items || []).map(normalizeVoteResponse);
+}
+
 function aggregateVotes(motions, responses, memberId) {
   const cleanMemberId = String(memberId || "").trim();
   const nowValue = new Date().toISOString().slice(0, 10);
@@ -836,10 +1083,13 @@ function aggregateVotes(motions, responses, memberId) {
       motion.closesAt &&
       motion.closesAt < nowValue &&
       objectionCount === 0;
+    const status =
+      motion.statusOverride ||
+      (isConsentApproved ? "Approved" : "Open");
 
     return {
       ...motion,
-      status: isConsentApproved ? "Approved" : "Open",
+      status,
       responseCounts,
       responseTotal: motionResponses.length,
       memberResponse: memberVote?.response || "",
@@ -849,7 +1099,7 @@ function aggregateVotes(motions, responses, memberId) {
 }
 
 async function listVotes(env, memberId) {
-  const [motionData, responseData] = await Promise.all([
+  const [motionData, responseData, members] = await Promise.all([
     mondayGraphQL(
       env,
       `query CoLabVoteMotions($boardIds: [ID!]) {
@@ -898,12 +1148,19 @@ async function listVotes(env, memberId) {
       }`,
       { boardIds: [BOARDS.voteLog] },
     ),
+    listMembers(env),
   ]);
 
-  const motions = (motionData.boards?.[0]?.items_page?.items || [])
+  const activityMotions = (motionData.boards?.[0]?.items_page?.items || [])
     .map(normalizeVoteMotion)
     .filter((motion) => VOTE_TYPES.includes(motion.voteType))
     .sort((a, b) => (b.submitDate || "").localeCompare(a.submitDate || ""));
+  const communityMotions = (await listCommunityEventSubmissions(env, members)).map(
+    communitySubmissionToVoteMotion,
+  );
+  const motions = [...activityMotions, ...communityMotions].sort((a, b) =>
+    (b.submitDate || "").localeCompare(a.submitDate || ""),
+  );
   const responses = (responseData.boards?.[0]?.items_page?.items || []).map(
     normalizeVoteResponse,
   );
@@ -957,10 +1214,10 @@ async function listPayments(env, memberId) {
     .sort((a, b) => (b.dateValue || "").localeCompare(a.dateValue || ""));
 }
 
-async function listProjectEvents(env, memberId) {
+async function listProjectEvents(env, memberId, members = null) {
   const cleanMemberId = String(memberId || "").trim();
-  const members = cleanMemberId ? await listMembers(env) : [];
-  const member = members.find((item) => item.memberId === cleanMemberId);
+  const memberList = members || (cleanMemberId ? await listMembers(env) : []);
+  const member = memberList.find((item) => item.memberId === cleanMemberId);
   const isAdmin = isAdminMember(member);
 
   const data = await mondayGraphQL(
@@ -992,6 +1249,29 @@ async function listProjectEvents(env, memberId) {
     .filter((event) => event.dateValue)
     .filter((event) => isAdmin || !event.adminOnly)
     .sort((a, b) => (a.dateValue || "").localeCompare(b.dateValue || ""));
+}
+
+async function listCalendarEvents(env, memberId) {
+  const cleanMemberId = String(memberId || "").trim();
+  const members = cleanMemberId ? await listMembers(env) : [];
+  const member = members.find((item) => item.memberId === cleanMemberId);
+  const shouldShowCommunityEvents = !isRetailOnlyMember(member);
+  const [projectEvents, communityEvents, voteResponses] = await Promise.all([
+    listProjectEvents(env, cleanMemberId, members),
+    shouldShowCommunityEvents
+      ? listCommunityEventSubmissions(env, members)
+      : Promise.resolve([]),
+    shouldShowCommunityEvents
+      ? listVoteResponses(env)
+      : Promise.resolve([]),
+  ]);
+  const consentAwareCommunityEvents = communityEvents.map((submission) =>
+    applyCommunityConsentStatus(submission, voteResponses),
+  );
+
+  return [...projectEvents, ...consentAwareCommunityEvents].sort((a, b) =>
+    (a.dateValue || "").localeCompare(b.dateValue || ""),
+  );
 }
 
 async function submitVote(request, env) {
@@ -1338,14 +1618,14 @@ const apiRoutes = {
 
     try {
       memberId = (await authorizeMemberRequest(request, env, memberId)).memberId;
-      return json({ source: "monday", events: await listProjectEvents(env, memberId) });
+      return json({ source: "monday", events: await listCalendarEvents(env, memberId) });
     } catch (error) {
       if (error.status) return json({ error: error.message }, { status: error.status });
 
       return json({
         source: "mock",
         warning: error.message,
-        events: MOCK_PROJECT_EVENTS,
+        events: [...MOCK_PROJECT_EVENTS, ...MOCK_COMMUNITY_EVENTS],
       });
     }
   },

@@ -530,6 +530,12 @@ main {
   color: #332a80;
 }
 
+.calendar-event.community {
+  border-left-color: var(--coral);
+  background: #fff3ec;
+  color: #7c3a24;
+}
+
 .calendar-event.maintenance {
   border-left-color: #60706b;
   background: #f0f2ef;
