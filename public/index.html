@@ -26,7 +26,7 @@
           <a href="#overview" class="active" data-section-link="overview">
             <span>Overview</span>
           </a>
-          <a href="#shifts" data-section-link="shifts">
+          <a href="#shifts" id="nav-shifts" data-section-link="shifts">
             <span>Shifts</span>
           </a>
           <a href="#calendar" data-section-link="calendar">
@@ -67,7 +67,12 @@
                 <option>Loading members</option>
               </select>
             </label>
-            <button class="primary-action" type="button" data-open-shift-modal>
+            <button
+              class="primary-action"
+              id="header-shift-action"
+              type="button"
+              data-open-shift-modal
+            >
               Sign up for a shift
             </button>
           </div>
@@ -86,7 +91,7 @@
         </section>
 
         <section class="metric-grid" aria-label="Member summary">
-          <article>
+          <article id="next-shift-card">
             <span class="metric-label">Next shift</span>
             <strong id="next-shift">Loading</strong>
             <small>Open studio host</small>
@@ -109,7 +114,11 @@
         </section>
 
         <section class="full-width-stack">
-          <section class="panel" id="shifts" aria-labelledby="shifts-title">
+          <section
+            class="panel"
+            id="shifts"
+            aria-labelledby="shifts-title"
+          >
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Studio coverage</p>

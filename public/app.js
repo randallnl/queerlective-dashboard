@@ -64,6 +64,7 @@ const announcementList = document.querySelector("#announcement-list");
 const paymentList = document.querySelector("#payment-list");
 const voteCount = document.querySelector("#vote-count");
 const nextShift = document.querySelector("#next-shift");
+const nextShiftCard = document.querySelector("#next-shift-card");
 const calendarFilter = document.querySelector("#calendar-filter");
 const shiftWindow = document.querySelector("#shift-window");
 const shiftModal = document.querySelector("#shift-modal");
@@ -81,6 +82,9 @@ const activityLatest = document.querySelector("#activity-latest");
 const activitySource = document.querySelector("#activity-source");
 const activityBreakdown = document.querySelector("#activity-breakdown");
 const activityList = document.querySelector("#activity-list");
+const shiftSection = document.querySelector("#shifts");
+const headerShiftAction = document.querySelector("#header-shift-action");
+const shiftNavLink = document.querySelector("#nav-shifts");
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -93,6 +97,10 @@ function escapeHtml(value) {
 
 function selectedMember() {
   return state.members.find((member) => member.memberId === state.selectedMemberId);
+}
+
+function isRetailOnlyMember(member = selectedMember()) {
+  return /retail only member/i.test(member?.membershipType || "");
 }
 
 function initialsFor(name) {
@@ -250,6 +258,11 @@ function shiftMarkup(shift) {
 }
 
 function updateNextShiftMetric() {
+  if (isRetailOnlyMember()) {
+    nextShift.textContent = "";
+    return;
+  }
+
   const firstSignedUpShift = state.shifts.find((shift) =>
     state.signedUpShifts.has(shift.id),
   );
@@ -274,6 +287,7 @@ function renderMemberView() {
     membershipType.textContent = "Not selected";
     memberEmail.textContent = "Choose a member to view their portal.";
     memberIdInput.value = "";
+    setShiftVisibility(false);
     renderActivity();
     return;
   }
@@ -286,6 +300,14 @@ function renderMemberView() {
   membershipType.textContent = member.membershipType || "Member";
   memberEmail.textContent = `Member ID ${member.memberId}`;
   memberIdInput.value = member.memberId;
+  setShiftVisibility(!isRetailOnlyMember(member));
+}
+
+function setShiftVisibility(isVisible) {
+  shiftSection?.classList.toggle("is-hidden", !isVisible);
+  nextShiftCard?.classList.toggle("is-hidden", !isVisible);
+  headerShiftAction?.classList.toggle("is-hidden", !isVisible);
+  shiftNavLink?.classList.toggle("is-hidden", !isVisible);
 }
 
 function renderMemberSelect() {
@@ -316,6 +338,13 @@ function renderMemberSelect() {
 }
 
 function renderShifts() {
+  if (isRetailOnlyMember()) {
+    shiftList.innerHTML = "";
+    modalShiftList.innerHTML = "";
+    updateNextShiftMetric();
+    return;
+  }
+
   const openShifts = openShiftsNextSixWeeks();
   updateNextShiftMetric();
 
@@ -758,6 +787,8 @@ async function loadPayments() {
 
 async function signUpForShift(shiftId, shiftBoardId, button) {
   const member = selectedMember();
+  if (isRetailOnlyMember(member)) return;
+
   const memberId = member?.memberId || memberIdInput.value.trim();
   if (!memberId) {
     memberSelect.focus();
