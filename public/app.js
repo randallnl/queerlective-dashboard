@@ -5,6 +5,7 @@ const state = {
   activities: [],
   votes: [],
   payments: [],
+  projectEvents: [],
   activitySummary: {
     total: 0,
     thisMonth: 0,
@@ -17,6 +18,7 @@ const state = {
   activitySource: "loading",
   voteSource: "loading",
   paymentSource: "loading",
+  projectEventSource: "loading",
   calendarMonthOffset: 0,
 };
 
@@ -504,7 +506,7 @@ function renderEvents(filter = "all") {
       meta: `${coveredBy} is covering ${shift.title}.`,
     };
   });
-  const visibleEvents = [...events, ...filledShiftEvents]
+  const visibleEvents = [...events, ...state.projectEvents, ...filledShiftEvents]
     .filter((event) => filter === "all" || event.type === filter)
     .sort((a, b) => (a.dateValue || a.date || "").localeCompare(b.dateValue || b.date || ""));
   const monthDate = monthRange(state.calendarMonthOffset).date;
@@ -574,6 +576,27 @@ function renderEvents(filter = "all") {
         .join("")}
     </div>
   `;
+}
+
+async function loadProjectEvents() {
+  const member = selectedMember();
+  const memberQuery = member?.memberId
+    ? `?memberId=${encodeURIComponent(member.memberId)}`
+    : "";
+
+  try {
+    const response = await fetch(`/api/events${memberQuery}`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to load events.");
+
+    state.projectEvents = payload.events || [];
+    state.projectEventSource = payload.source || "monday";
+  } catch {
+    state.projectEvents = [];
+    state.projectEventSource = "error";
+  }
+
+  renderEvents(calendarFilter.value);
 }
 
 function responseCount(vote, response) {
@@ -844,6 +867,7 @@ memberSelect.addEventListener("change", (event) => {
   loadActivity();
   loadVotes();
   loadPayments();
+  loadProjectEvents();
 });
 
 document.addEventListener("click", (event) => {
@@ -883,6 +907,7 @@ async function init() {
   await loadActivity();
   await loadVotes();
   await loadPayments();
+  await loadProjectEvents();
   loadShifts();
 }
 

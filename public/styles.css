@@ -488,6 +488,12 @@ main {
   color: #735314;
 }
 
+.calendar-event.project {
+  border-left-color: #6c5ce7;
+  background: #eeecff;
+  color: #332a80;
+}
+
 .calendar-event.maintenance {
   border-left-color: #60706b;
   background: #f0f2ef;

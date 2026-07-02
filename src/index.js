@@ -6,6 +6,7 @@ const BOARDS = {
   activityFeedback: 18408298018,
   voteLog: 18411164142,
   shopifyTransactions: 18410480642,
+  projectEvents: 8390893779,
 };
 
 const VOTE_TYPES = [
@@ -60,7 +61,14 @@ const COLUMNS = {
     details: "text_mm2fb4c7",
     email: "text_mm2f5770",
   },
+  projectEvents: {
+    startDate: "date_mkns6cak",
+    endDate: "date_mm171v9p",
+    location: "dropdown_mknqezw8",
+  },
 };
+
+const MEMBER_VISIBLE_LOCATIONS = /board room|colab|community room|gym/i;
 
 const MOCK_SHIFTS = [
   {
@@ -150,6 +158,21 @@ const MOCK_PAYMENTS = [
     details: "CoLab Membership Subscription",
     amount: "$45.00",
     email: "ari@example.com",
+  },
+];
+
+const MOCK_PROJECT_EVENTS = [
+  {
+    id: "mock-project-event-01",
+    title: "CoLab community open studio",
+    date: "Jul 17",
+    dateValue: "2026-07-17",
+    endDateValue: "2026-07-17",
+    time: "Project/Event",
+    type: "project",
+    location: "CoLab",
+    meta: "CoLab event in CoLab.",
+    adminOnly: false,
   },
 ];
 
@@ -435,6 +458,33 @@ function normalizePayment(item) {
     details: getColumnText(item.column_values, COLUMNS.transactions.details),
     amount: formatMoney(getColumnText(item.column_values, COLUMNS.transactions.amount)),
     email: getColumnText(item.column_values, COLUMNS.transactions.email).toLowerCase(),
+  };
+}
+
+function normalizeProjectEvent(item) {
+  const startColumn = getColumnValue(
+    item.column_values,
+    COLUMNS.projectEvents.startDate,
+  );
+  const endColumn = getColumnValue(item.column_values, COLUMNS.projectEvents.endDate);
+  const startDate =
+    startColumn?.date || getColumnText(item.column_values, COLUMNS.projectEvents.startDate);
+  const endDate =
+    endColumn?.date || getColumnText(item.column_values, COLUMNS.projectEvents.endDate);
+  const location = getColumnText(item.column_values, COLUMNS.projectEvents.location);
+  const isMemberVisible = MEMBER_VISIBLE_LOCATIONS.test(location);
+
+  return {
+    id: item.id,
+    title: item.name,
+    date: formatShiftDate(startDate, item.name),
+    dateValue: startDate,
+    endDateValue: endDate,
+    time: endDate && endDate !== startDate ? `${formatActivityDate(startDate)} - ${formatActivityDate(endDate)}` : "Project/Event",
+    type: "project",
+    location,
+    meta: `${location || "Location TBD"}${isMemberVisible ? "" : " · Admin only"}`,
+    adminOnly: !isMemberVisible,
   };
 }
 
@@ -749,6 +799,43 @@ async function listPayments(env, memberId) {
     .sort((a, b) => (b.dateValue || "").localeCompare(a.dateValue || ""));
 }
 
+async function listProjectEvents(env, memberId) {
+  const cleanMemberId = String(memberId || "").trim();
+  const members = cleanMemberId ? await listMembers(env) : [];
+  const member = members.find((item) => item.memberId === cleanMemberId);
+  const isAdmin = /admin/i.test(member?.membershipType || "");
+
+  const data = await mondayGraphQL(
+    env,
+    `query ProjectEvents($boardIds: [ID!]) {
+      boards(ids: $boardIds) {
+        items_page(limit: 500) {
+          items {
+            id
+            name
+            column_values(ids: [
+              "${COLUMNS.projectEvents.startDate}",
+              "${COLUMNS.projectEvents.endDate}",
+              "${COLUMNS.projectEvents.location}"
+            ]) {
+              id
+              text
+              value
+            }
+          }
+        }
+      }
+    }`,
+    { boardIds: [BOARDS.projectEvents] },
+  );
+
+  return (data.boards?.[0]?.items_page?.items || [])
+    .map(normalizeProjectEvent)
+    .filter((event) => event.dateValue)
+    .filter((event) => isAdmin || !event.adminOnly)
+    .sort((a, b) => (a.dateValue || "").localeCompare(b.dateValue || ""));
+}
+
 async function submitVote(request, env) {
   const { voteId, motion, response, comment, memberId } = await request.json();
   const cleanVoteId = String(voteId || "").trim();
@@ -1039,6 +1126,20 @@ const apiRoutes = {
         source: "mock",
         warning: error.message,
         payments: MOCK_PAYMENTS,
+      });
+    }
+  },
+  "GET /api/events": async (request, env) => {
+    const url = new URL(request.url);
+    const memberId = url.searchParams.get("memberId")?.trim();
+
+    try {
+      return json({ source: "monday", events: await listProjectEvents(env, memberId) });
+    } catch (error) {
+      return json({
+        source: "mock",
+        warning: error.message,
+        events: MOCK_PROJECT_EVENTS,
       });
     }
   },
