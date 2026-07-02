@@ -5,6 +5,7 @@ const BOARDS = {
   colabMembers: 8402413272,
   activityFeedback: 18408298018,
   voteLog: 18411164142,
+  shopifyTransactions: 18410480642,
 };
 
 const VOTE_TYPES = [
@@ -53,6 +54,11 @@ const COLUMNS = {
     motion: "text_mm4vp4ny",
     memberId: "text_mm4vff42",
     voteId: "text_mm4ve8bt",
+  },
+  transactions: {
+    amount: "numeric_mm2fgrdz",
+    details: "text_mm2fb4c7",
+    email: "text_mm2f5770",
   },
 };
 
@@ -136,6 +142,17 @@ const MOCK_VOTES = [
   },
 ];
 
+const MOCK_PAYMENTS = [
+  {
+    id: "mock-payment-01",
+    date: "Jun 15, 2026",
+    dateValue: "2026-06-15",
+    details: "CoLab Membership Subscription",
+    amount: "$45.00",
+    email: "ari@example.com",
+  },
+];
+
 function json(data, init = {}) {
   return Response.json(data, {
     ...init,
@@ -196,6 +213,22 @@ function formatActivityDate(dateValue) {
     year: "numeric",
     timeZone: "UTC",
   }).format(date);
+}
+
+function formatMoney(value) {
+  const amount = Number.parseFloat(String(value || "").replace(/[^0-9.-]/g, ""));
+  if (Number.isNaN(amount)) return value || "$0.00";
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(amount);
+}
+
+function memberEmails(member) {
+  return [member.email, ...(member.otherEmails || "").split(/[,;\s]+/)]
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 function memberIdFromPerson(personText) {
@@ -389,6 +422,19 @@ function normalizeVoteResponse(item) {
     question: getColumnText(item.column_values, COLUMNS.votes.motion),
     memberId: getColumnText(item.column_values, COLUMNS.votes.memberId),
     voteId: getColumnText(item.column_values, COLUMNS.votes.voteId),
+  };
+}
+
+function normalizePayment(item) {
+  const dateValue = item.created_at?.slice(0, 10) || "";
+
+  return {
+    id: item.id,
+    date: formatActivityDate(dateValue),
+    dateValue,
+    details: getColumnText(item.column_values, COLUMNS.transactions.details),
+    amount: formatMoney(getColumnText(item.column_values, COLUMNS.transactions.amount)),
+    email: getColumnText(item.column_values, COLUMNS.transactions.email).toLowerCase(),
   };
 }
 
@@ -655,6 +701,52 @@ async function listVotes(env, memberId) {
   );
 
   return aggregateVotes(motions, responses, memberId);
+}
+
+async function listPayments(env, memberId) {
+  const cleanMemberId = String(memberId || "").trim();
+  if (!cleanMemberId) return [];
+
+  const members = await listMembers(env);
+  const member = members.find((item) => item.memberId === cleanMemberId);
+  if (!member) return [];
+
+  const emails = new Set(memberEmails(member));
+  if (!emails.size) return [];
+
+  const data = await mondayGraphQL(
+    env,
+    `query ShopifyTransactions($boardIds: [ID!]) {
+      boards(ids: $boardIds) {
+        items_page(limit: 500) {
+          items {
+            id
+            name
+            created_at
+            column_values(ids: [
+              "${COLUMNS.transactions.amount}",
+              "${COLUMNS.transactions.details}",
+              "${COLUMNS.transactions.email}"
+            ]) {
+              id
+              text
+              value
+            }
+          }
+        }
+      }
+    }`,
+    { boardIds: [BOARDS.shopifyTransactions] },
+  );
+
+  return (data.boards?.[0]?.items_page?.items || [])
+    .map(normalizePayment)
+    .filter(
+      (payment) =>
+        emails.has(payment.email) &&
+        /colab membership subscription/i.test(payment.details),
+    )
+    .sort((a, b) => (b.dateValue || "").localeCompare(a.dateValue || ""));
 }
 
 async function submitVote(request, env) {
@@ -933,6 +1025,20 @@ const apiRoutes = {
         source: "mock",
         warning: error.message,
         votes: MOCK_VOTES,
+      });
+    }
+  },
+  "GET /api/payments": async (request, env) => {
+    const url = new URL(request.url);
+    const memberId = url.searchParams.get("memberId")?.trim();
+
+    try {
+      return json({ source: "monday", payments: await listPayments(env, memberId) });
+    } catch (error) {
+      return json({
+        source: "mock",
+        warning: error.message,
+        payments: MOCK_PAYMENTS,
       });
     }
   },

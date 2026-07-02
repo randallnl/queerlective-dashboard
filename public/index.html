@@ -108,16 +108,23 @@
           </article>
         </section>
 
-        <section class="content-grid coverage-calendar-grid">
+        <section class="full-width-stack">
           <section class="panel" id="shifts" aria-labelledby="shifts-title">
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Studio coverage</p>
                 <h2 id="shifts-title">Available shifts</h2>
               </div>
-              <button class="secondary-action" type="button" data-open-shift-modal>
-                See next 6 weeks
-              </button>
+              <div class="panel-actions">
+                <select id="shift-window" aria-label="Filter available shifts">
+                  <option value="six-weeks">Next 6 weeks</option>
+                  <option value="this-month">This month</option>
+                  <option value="next-month">Next month</option>
+                </select>
+                <button class="secondary-action" type="button" data-open-shift-modal>
+                  See all
+                </button>
+              </div>
             </div>
             <div class="shift-list" id="shift-list"></div>
           </section>
@@ -128,13 +135,19 @@
                 <p class="eyebrow">What is happening</p>
                 <h2 id="calendar-title">Calendar</h2>
               </div>
-              <select id="calendar-filter" aria-label="Filter calendar">
-                <option value="all">All events</option>
-                <option value="workshop">Workshops</option>
-                <option value="member">Member use</option>
-                <option value="shift">Filled shifts</option>
-                <option value="maintenance">Maintenance</option>
-              </select>
+              <div class="panel-actions">
+                <div class="segmented-control" aria-label="Calendar month">
+                  <button class="icon-button" type="button" data-calendar-shift="-1" aria-label="Previous month">‹</button>
+                  <button class="icon-button" type="button" data-calendar-shift="1" aria-label="Next month">›</button>
+                </div>
+                <select id="calendar-filter" aria-label="Filter calendar">
+                  <option value="all">All events</option>
+                  <option value="workshop">Workshops</option>
+                  <option value="member">Member use</option>
+                  <option value="shift">Filled shifts</option>
+                  <option value="maintenance">Maintenance</option>
+                </select>
+              </div>
             </div>
             <div class="event-list" id="event-list"></div>
           </section>
@@ -168,24 +181,13 @@
           </section>
         </section>
 
-        <section class="content-grid lower-grid">
+        <section class="full-width-stack">
 
           <section class="panel" id="payments" aria-labelledby="payments-title">
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Membership</p>
-                <h2 id="payments-title">Dues history</h2>
-              </div>
-              <span class="status-pill">Autopay on</span>
-            </div>
-            <div class="payment-summary">
-              <div>
-                <span>Monthly dues</span>
-                <strong>$45.00</strong>
-              </div>
-              <div>
-                <span>Next payment</span>
-                <strong>Jul 15</strong>
+                <h2 id="payments-title">Payment history</h2>
               </div>
             </div>
             <div class="payment-list" id="payment-list"></div>

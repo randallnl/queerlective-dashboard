@@ -4,6 +4,7 @@ const state = {
   shifts: [],
   activities: [],
   votes: [],
+  payments: [],
   activitySummary: {
     total: 0,
     thisMonth: 0,
@@ -15,6 +16,8 @@ const state = {
   memberSource: "loading",
   activitySource: "loading",
   voteSource: "loading",
+  paymentSource: "loading",
+  calendarMonthOffset: 0,
 };
 
 const events = [
@@ -52,12 +55,6 @@ const events = [
   },
 ];
 
-const payments = [
-  { date: "Jun 15, 2026", label: "Monthly dues", amount: "$45.00", status: "Paid" },
-  { date: "May 15, 2026", label: "Monthly dues", amount: "$45.00", status: "Paid" },
-  { date: "Apr 15, 2026", label: "Monthly dues", amount: "$45.00", status: "Paid" },
-];
-
 const shiftList = document.querySelector("#shift-list");
 const modalShiftList = document.querySelector("#modal-shift-list");
 const eventList = document.querySelector("#event-list");
@@ -66,6 +63,7 @@ const paymentList = document.querySelector("#payment-list");
 const voteCount = document.querySelector("#vote-count");
 const nextShift = document.querySelector("#next-shift");
 const calendarFilter = document.querySelector("#calendar-filter");
+const shiftWindow = document.querySelector("#shift-window");
 const shiftModal = document.querySelector("#shift-modal");
 const memberIdInput = document.querySelector("#member-id-input");
 const shiftSourceNote = document.querySelector("#shift-source-note");
@@ -124,15 +122,38 @@ function sixWeeksFromToday() {
   return end.toISOString().slice(0, 10);
 }
 
+function monthRange(offset = 0) {
+  const today = new Date();
+  const start = new Date(Date.UTC(today.getFullYear(), today.getMonth() + offset, 1));
+  const end = new Date(Date.UTC(today.getFullYear(), today.getMonth() + offset + 1, 0));
+
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
+    date: start,
+  };
+}
+
 function isWithinNextSixWeeks(dateValue) {
   if (!dateValue) return true;
   return dateValue <= sixWeeksFromToday();
 }
 
+function isWithinMonth(dateValue, offset) {
+  if (!dateValue) return false;
+  const { start, end } = monthRange(offset);
+  return dateValue >= start && dateValue <= end;
+}
+
 function openShiftsNextSixWeeks() {
-  return state.shifts.filter(
-    (shift) => !shift.isCovered && isWithinNextSixWeeks(shift.dateValue),
-  );
+  const windowValue = shiftWindow?.value || "six-weeks";
+
+  return state.shifts.filter((shift) => {
+    if (shift.isCovered) return false;
+    if (windowValue === "this-month") return isWithinMonth(shift.dateValue, 0);
+    if (windowValue === "next-month") return isWithinMonth(shift.dateValue, 1);
+    return isWithinNextSixWeeks(shift.dateValue);
+  });
 }
 
 function filledShiftsForCalendar() {
@@ -161,18 +182,6 @@ function calendarDateParts(event) {
     month: parts.at(-2) || "",
     day: parts.at(-1) || "",
   };
-}
-
-function monthDateFromEvents(eventsForCalendar) {
-  const firstDatedEvent = eventsForCalendar.find((event) => event.dateValue);
-  const sourceDate = firstDatedEvent?.dateValue || new Date().toISOString().slice(0, 10);
-  const date = new Date(`${sourceDate}T00:00:00Z`);
-
-  if (Number.isNaN(date.getTime())) {
-    return new Date();
-  }
-
-  return date;
 }
 
 function eventDateKey(event) {
@@ -318,9 +327,11 @@ function renderShifts() {
   modalShiftList.innerHTML = openShifts.map(shiftMarkup).join("");
 
   if (shiftSourceNote) {
+    const windowLabel =
+      shiftWindow?.selectedOptions?.[0]?.textContent?.toLowerCase() || "next 6 weeks";
     shiftSourceNote.textContent =
       state.shiftSource === "monday"
-        ? "Showing open CoLab Calendar shifts for the next 6 weeks."
+        ? `Showing open CoLab Calendar shifts for ${windowLabel}.`
         : "Using preview data until monday is available.";
   }
 }
@@ -488,7 +499,7 @@ function renderEvents(filter = "all") {
   const visibleEvents = [...events, ...filledShiftEvents]
     .filter((event) => filter === "all" || event.type === filter)
     .sort((a, b) => (a.dateValue || a.date || "").localeCompare(b.dateValue || b.date || ""));
-  const monthDate = monthDateFromEvents(visibleEvents);
+  const monthDate = monthRange(state.calendarMonthOffset).date;
   const year = monthDate.getUTCFullYear();
   const month = monthDate.getUTCMonth();
   const monthLabel = new Intl.DateTimeFormat("en-US", {
@@ -663,22 +674,55 @@ async function loadVotes() {
 }
 
 function renderPayments() {
-  paymentList.innerHTML = payments
+  if (!state.payments.length) {
+    paymentList.innerHTML = `<p class="form-note">No CoLab membership payments found for this member.</p>`;
+    return;
+  }
+
+  paymentList.innerHTML = state.payments
     .map(
       (payment) => `
         <article class="payment-item">
           <div>
-            <strong>${payment.label}</strong>
-            <small>${payment.date}</small>
+            <strong>${escapeHtml(payment.details)}</strong>
+            <small>${escapeHtml(payment.date)} · ${escapeHtml(payment.email)}</small>
           </div>
           <div>
-            <strong>${payment.amount}</strong>
-            <small>${payment.status}</small>
+            <strong>${escapeHtml(payment.amount)}</strong>
           </div>
         </article>
       `,
     )
     .join("");
+}
+
+async function loadPayments() {
+  const member = selectedMember();
+
+  if (!member?.memberId) {
+    state.payments = [];
+    state.paymentSource = "loading";
+    renderPayments();
+    return;
+  }
+
+  paymentList.innerHTML = `<p class="form-note">Loading payment history...</p>`;
+
+  try {
+    const response = await fetch(`/api/payments?memberId=${encodeURIComponent(member.memberId)}`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to load payment history.");
+
+    state.payments = payload.payments || [];
+    state.paymentSource = payload.source || "monday";
+  } catch (error) {
+    state.payments = [];
+    state.paymentSource = "error";
+    paymentList.innerHTML = `<p class="form-note">${escapeHtml(error.message)}</p>`;
+    return;
+  }
+
+  renderPayments();
 }
 
 async function signUpForShift(shiftId, shiftBoardId, button) {
@@ -791,6 +835,7 @@ memberSelect.addEventListener("change", (event) => {
   renderEvents(calendarFilter.value);
   loadActivity();
   loadVotes();
+  loadPayments();
 });
 
 document.addEventListener("click", (event) => {
@@ -803,6 +848,17 @@ document.addEventListener("click", (event) => {
 
 calendarFilter.addEventListener("change", (event) => {
   renderEvents(event.target.value);
+});
+
+shiftWindow.addEventListener("change", () => {
+  renderShifts();
+});
+
+document.querySelectorAll("[data-calendar-shift]").forEach((button) => {
+  button.addEventListener("click", () => {
+    state.calendarMonthOffset += Number(button.dataset.calendarShift || 0);
+    renderEvents(calendarFilter.value);
+  });
 });
 
 document.querySelectorAll("[data-section-link]").forEach((link) => {
@@ -818,9 +874,9 @@ async function init() {
   await loadMembers();
   await loadActivity();
   await loadVotes();
+  await loadPayments();
   loadShifts();
 }
 
 init();
 renderEvents();
-renderPayments();

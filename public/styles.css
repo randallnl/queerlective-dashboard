@@ -140,6 +140,12 @@ main {
   gap: 12px;
 }
 
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .compact-field {
   display: grid;
   gap: 6px;
@@ -536,6 +542,11 @@ select {
   padding: 0 12px;
 }
 
+.segmented-control {
+  display: flex;
+  gap: 6px;
+}
+
 .vote-row,
 .payment-item,
 .payment-summary {
@@ -769,6 +780,7 @@ dialog::backdrop {
   .topbar,
   .section-heading,
   .topbar-actions,
+  .panel-actions,
   .shift-item,
   .vote-row,
   .payment-item,
