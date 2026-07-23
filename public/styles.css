@@ -321,6 +321,11 @@ main {
   gap: 10px;
 }
 
+.calendar-component-actions {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
 .compact-field {
   display: grid;
   gap: 6px;

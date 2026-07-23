@@ -11,7 +11,9 @@
     "check": "npm run build && wrangler deploy --dry-run"
   },
   "devDependencies": {
+    "@astrojs/svelte": "^7.2.5",
     "astro": "^5.0.0",
+    "svelte": "^5.56.7",
     "wrangler": "^4.90.0"
   }
 }

@@ -30,12 +30,10 @@ const state = {
   orderSource: "loading",
   projectEventSource: "loading",
   adminProjectSource: "loading",
-  calendarMonthOffset: 0,
 };
 
 const shiftList = document.querySelector("#shift-list");
 const modalShiftList = document.querySelector("#modal-shift-list");
-const eventList = document.querySelector("#event-list");
 const announcementList = document.querySelector("#announcement-list");
 const paymentList = document.querySelector("#payment-list");
 const orderList = document.querySelector("#order-list");
@@ -43,7 +41,6 @@ const orderCount = document.querySelector("#order-count");
 const voteCount = document.querySelector("#vote-count");
 const nextShift = document.querySelector("#next-shift");
 const nextShiftCard = document.querySelector("#next-shift-card");
-const calendarFilter = document.querySelector("#calendar-filter");
 const shiftWindow = document.querySelector("#shift-window");
 const shiftModal = document.querySelector("#shift-modal");
 const memberIdInput = document.querySelector("#member-id-input");
@@ -198,42 +195,6 @@ function filledShiftsForCalendar() {
   return state.shifts.filter((shift) => shift.isCovered);
 }
 
-function calendarDateParts(event) {
-  if (event.dateValue) {
-    const date = new Date(`${event.dateValue}T00:00:00Z`);
-    if (!Number.isNaN(date.getTime())) {
-      return {
-        day: new Intl.DateTimeFormat("en-US", {
-          day: "numeric",
-          timeZone: "UTC",
-        }).format(date),
-        month: new Intl.DateTimeFormat("en-US", {
-          month: "short",
-          timeZone: "UTC",
-        }).format(date),
-      };
-    }
-  }
-
-  const parts = String(event.date || "").split(/\s+/).filter(Boolean);
-  return {
-    month: parts.at(-2) || "",
-    day: parts.at(-1) || "",
-  };
-}
-
-function eventDateKey(event) {
-  if (event.dateValue) return event.dateValue;
-
-  const { month, day } = calendarDateParts(event);
-  if (!month || !day) return "";
-
-  const fallbackDate = new Date(`${month} ${day}, ${new Date().getFullYear()} 00:00:00`);
-  if (Number.isNaN(fallbackDate.getTime())) return "";
-
-  return fallbackDate.toISOString().slice(0, 10);
-}
-
 function shiftButtonLabel(shift, isSignedUp) {
   if (isSignedUp) return "Signed up";
   if (shift.isCovered) return "Covered";
@@ -272,38 +233,6 @@ function shiftMarkup(shift) {
         ${shiftButtonLabel(shift, isSignedUp)}
       </button>
     </article>
-  `;
-}
-
-function calendarEventDetails(event) {
-  const details = [
-    event.date ? `Date: ${event.date}` : "",
-    event.time ? `Time/type: ${event.time}` : "",
-    event.meta || "",
-    event.details || "",
-  ].filter(Boolean);
-  const detailLink = event.detailUrl
-    ? `<a class="calendar-event-link" href="${escapeHtml(event.detailUrl)}">Open details</a>`
-    : "";
-
-  return `
-    <div class="calendar-event-details">
-      ${details.map((detail) => `<p>${escapeHtml(detail)}</p>`).join("")}
-      ${detailLink}
-    </div>
-  `;
-}
-
-function calendarEventMarkup(event) {
-  return `
-    <details class="calendar-event ${escapeHtml(event.type)}">
-      <summary>
-        <strong>${escapeHtml(event.title)}</strong>
-        <span>${escapeHtml(event.time)}</span>
-        <small>${escapeHtml(event.meta)}</small>
-      </summary>
-      ${calendarEventDetails(event)}
-    </details>
   `;
 }
 
@@ -538,7 +467,7 @@ async function loadShifts() {
   }
 
   renderShifts();
-  renderEvents(calendarFilter.value);
+  renderEvents();
 }
 
 function renderActivity() {
@@ -646,7 +575,7 @@ async function loadActivity() {
   renderActivity();
 }
 
-function renderEvents(filter = "all") {
+function renderEvents() {
   const filledShiftEvents = filledShiftsForCalendar().map((shift) => {
     const isSelectedMember =
       selectedMember()?.memberId && shift.memberId === selectedMember().memberId;
@@ -662,68 +591,14 @@ function renderEvents(filter = "all") {
       details: `Coverage status: covered by ${coveredBy}.`,
     };
   });
-  const visibleEvents = [...state.projectEvents, ...filledShiftEvents]
-    .filter((event) => filter === "all" || event.type === filter)
+  const events = [...state.projectEvents, ...filledShiftEvents]
     .sort((a, b) => (a.dateValue || a.date || "").localeCompare(b.dateValue || b.date || ""));
-  const monthDate = monthRange(state.calendarMonthOffset).date;
-  const year = monthDate.getUTCFullYear();
-  const month = monthDate.getUTCMonth();
-  const monthLabel = new Intl.DateTimeFormat("en-US", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(monthDate);
-  const firstDay = new Date(Date.UTC(year, month, 1));
-  const lastDay = new Date(Date.UTC(year, month + 1, 0));
-  const leadingBlanks = firstDay.getUTCDay();
-  const daysInMonth = lastDay.getUTCDate();
-  const eventMap = visibleEvents.reduce((map, event) => {
-    const key = eventDateKey(event);
-    if (!key) return map;
 
-    map[key] ||= [];
-    map[key].push(event);
-    return map;
-  }, {});
-  const cells = [
-    ...Array.from({ length: leadingBlanks }, () => ({ type: "blank" })),
-    ...Array.from({ length: daysInMonth }, (_, index) => {
-      const day = index + 1;
-      const dateValue = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      return {
-        type: "day",
-        day,
-        events: eventMap[dateValue] || [],
-      };
+  window.dispatchEvent(
+    new CustomEvent("colab:calendar-data", {
+      detail: { events },
     }),
-  ];
-
-  eventList.innerHTML = `
-    <div class="calendar-month-label">${escapeHtml(monthLabel)}</div>
-    <div class="calendar-grid" role="grid" aria-label="${escapeHtml(monthLabel)} calendar">
-      ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-        .map((day) => `<div class="calendar-weekday" role="columnheader">${day}</div>`)
-        .join("")}
-      ${cells
-        .map((cell) => {
-          if (cell.type === "blank") {
-            return `<div class="calendar-day blank" aria-hidden="true"></div>`;
-          }
-
-          return `
-            <div class="calendar-day" role="gridcell">
-              <span class="calendar-day-number">${cell.day}</span>
-              <div class="calendar-day-events">
-                ${cell.events
-                  .map(calendarEventMarkup)
-                  .join("")}
-              </div>
-            </div>
-          `;
-        })
-        .join("")}
-    </div>
-  `;
+  );
 }
 
 async function loadProjectEvents() {
@@ -744,7 +619,7 @@ async function loadProjectEvents() {
     state.projectEventSource = "error";
   }
 
-  renderEvents(calendarFilter.value);
+  renderEvents();
 }
 
 function projectMatchesFilters(project) {
@@ -1133,12 +1008,12 @@ async function signUpForShift(shiftId, shiftBoardId, button) {
         : shift,
     );
     renderShifts();
-    renderEvents(calendarFilter.value);
+    renderEvents();
     shiftSourceNote.textContent = `Confirmed: ${payload.coveredBy || memberNameWithLastInitial(member)} is covering ${signedUpShift?.date || "this shift"}.`;
     return;
   } catch (error) {
     renderShifts();
-    renderEvents(calendarFilter.value);
+    renderEvents();
     shiftSourceNote.textContent = error.message;
     return;
   }
@@ -1209,7 +1084,7 @@ memberSelect.addEventListener("change", (event) => {
   localStorage.setItem("colabSelectedMemberId", state.selectedMemberId);
   renderMemberView();
   renderShifts();
-  renderEvents(calendarFilter.value);
+  renderEvents();
   loadActivity();
   loadVotes();
   loadPayments();
@@ -1225,10 +1100,6 @@ document.addEventListener("click", (event) => {
   }
 });
 
-calendarFilter.addEventListener("change", (event) => {
-  renderEvents(event.target.value);
-});
-
 shiftWindow.addEventListener("change", () => {
   renderShifts();
 });
@@ -1238,11 +1109,8 @@ shiftWindow.addEventListener("change", () => {
   control?.addEventListener("change", renderAdminProjects);
 });
 
-document.querySelectorAll("[data-calendar-shift]").forEach((button) => {
-  button.addEventListener("click", () => {
-    state.calendarMonthOffset += Number(button.dataset.calendarShift || 0);
-    renderEvents(calendarFilter.value);
-  });
+window.addEventListener("colab:calendar-ready", () => {
+  renderEvents();
 });
 
 document.querySelectorAll("[data-section-link]").forEach((link) => {

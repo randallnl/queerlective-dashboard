@@ -1,3 +1,7 @@
+---
+import Calendar from "../components/Calendar.svelte";
+---
+
 <!doctype html>
 <html lang="en">
   <head>
@@ -169,22 +173,9 @@
                 >
                   Submit event
                 </a>
-                <div class="segmented-control" aria-label="Calendar month">
-                  <button class="icon-button" type="button" data-calendar-shift="-1" aria-label="Previous month">‹</button>
-                  <button class="icon-button" type="button" data-calendar-shift="1" aria-label="Next month">›</button>
-                </div>
-                <select id="calendar-filter" aria-label="Filter calendar">
-                  <option value="all">All events</option>
-                  <option value="workshop">Workshops</option>
-                  <option value="member">Member use</option>
-                  <option value="project">Project/events</option>
-                  <option value="community">Community proposals</option>
-                  <option value="shift">Filled shifts</option>
-                  <option value="maintenance">Maintenance</option>
-                </select>
               </div>
             </div>
-            <div class="event-list" id="event-list"></div>
+            <Calendar client:load />
           </section>
         </section>
 
