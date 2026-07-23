@@ -867,16 +867,6 @@ function hasD1(env) {
   return Boolean(env.DB?.prepare);
 }
 
-function upcomingShifts(shifts) {
-  const today = new Date();
-  const todayValue = today.toISOString().slice(0, 10);
-
-  return shifts
-    .filter((shift) => !shift.dateValue || shift.dateValue >= todayValue)
-    .sort((a, b) => (a.dateValue || "9999-12-31").localeCompare(b.dateValue || "9999-12-31"))
-    .slice(0, 40);
-}
-
 function normalizeMember(item) {
   return {
     itemId: item.id,
@@ -1304,15 +1294,12 @@ async function listMondayShifts(env) {
 async function listShiftsFromD1(env) {
   if (!hasD1(env)) return [];
 
-  const todayValue = new Date().toISOString().slice(0, 10);
   const result = await env.DB.prepare(
     `SELECT *
       FROM colab_shifts
-      WHERE date_value = '' OR date_value >= ?
       ORDER BY CASE WHEN date_value = '' THEN '9999-12-31' ELSE date_value END
-      LIMIT 40`,
+      LIMIT 500`,
   )
-    .bind(todayValue)
     .all();
 
   return (result.results || []).map(shiftFromD1);
@@ -1394,7 +1381,7 @@ async function listShifts(env) {
   if (d1Shifts.length) return { source: "d1", shifts: d1Shifts };
 
   const mondayShifts = await syncShiftsToD1(env);
-  return { source: hasD1(env) ? "monday+d1" : "monday", shifts: upcomingShifts(mondayShifts) };
+  return { source: hasD1(env) ? "monday+d1" : "monday", shifts: mondayShifts };
 }
 
 async function listMembers(env) {

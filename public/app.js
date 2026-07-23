@@ -160,6 +160,10 @@ function sixWeeksFromToday() {
   return end.toISOString().slice(0, 10);
 }
 
+function todayValue() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function monthRange(offset = 0) {
   const today = new Date();
   const start = new Date(Date.UTC(today.getFullYear(), today.getMonth() + offset, 1));
@@ -174,13 +178,13 @@ function monthRange(offset = 0) {
 
 function isWithinNextSixWeeks(dateValue) {
   if (!dateValue) return true;
-  return dateValue <= sixWeeksFromToday();
+  return dateValue >= todayValue() && dateValue <= sixWeeksFromToday();
 }
 
 function isWithinMonth(dateValue, offset) {
   if (!dateValue) return false;
   const { start, end } = monthRange(offset);
-  return dateValue >= start && dateValue <= end;
+  return dateValue >= todayValue() && dateValue >= start && dateValue <= end;
 }
 
 function openShiftsNextSixWeeks() {
@@ -246,11 +250,15 @@ function updateNextShiftMetric() {
   }
 
   const firstSignedUpShift = state.shifts.find((shift) =>
-    state.signedUpShifts.has(shift.id),
+    state.signedUpShifts.has(shift.id) &&
+      (!shift.dateValue || shift.dateValue >= todayValue()),
   );
   const member = selectedMember();
   const memberShift = state.shifts.find(
-    (shift) => member?.memberId && shift.memberId === member.memberId,
+    (shift) =>
+      member?.memberId &&
+      shift.memberId === member.memberId &&
+      (!shift.dateValue || shift.dateValue >= todayValue()),
   );
   const firstOpenShift = openShiftsNextSixWeeks()[0];
 
