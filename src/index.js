@@ -636,8 +636,8 @@ async function accessSession(request, env) {
       authenticated: false,
       email: "",
       member: null,
-      isAdmin: true,
-      canViewAs: true,
+      isAdmin: false,
+      canViewAs: false,
     };
   }
 
@@ -686,6 +686,42 @@ async function accessSession(request, env) {
     member,
     isAdmin,
     canViewAs: isAdmin,
+  };
+}
+
+async function requireAuthenticatedSession(request, env) {
+  const sessionToken = cookieValue(request, SESSION_COOKIE);
+  if (!sessionToken || !hasD1(env)) {
+    const error = new Error("Sign in with your member email to access the CoLab dashboard.");
+    error.status = 401;
+    throw error;
+  }
+
+  const sessionHash = await sha256(sessionToken);
+  const sessionRow = await env.DB.prepare(
+    `SELECT *
+      FROM magic_sessions
+      WHERE session_hash = ? AND expires_at > ?`,
+  )
+    .bind(sessionHash, isoNow())
+    .first();
+
+  if (!sessionRow?.email) {
+    const error = new Error("Sign in with your member email to access the CoLab dashboard.");
+    error.status = 401;
+    throw error;
+  }
+
+  await env.DB.prepare(
+    "UPDATE magic_sessions SET last_seen_at = ? WHERE session_hash = ?",
+  )
+    .bind(isoNow(), sessionHash)
+    .run();
+
+  return {
+    authenticated: true,
+    email: sessionRow.email,
+    memberId: sessionRow.member_id,
   };
 }
 
@@ -2349,7 +2385,7 @@ const apiRoutes = {
     }),
   "GET /api/shifts": async (_request, env) => {
     try {
-      await requireMatchedAccessMember(_request, env);
+      await requireAuthenticatedSession(_request, env);
       const shiftData = await listShifts(env);
       return json(shiftData);
     } catch (error) {

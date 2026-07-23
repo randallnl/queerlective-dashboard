@@ -472,10 +472,15 @@ function renderShifts() {
   if (shiftSourceNote) {
     const windowLabel =
       shiftWindow?.selectedOptions?.[0]?.textContent?.toLowerCase() || "next 6 weeks";
-    shiftSourceNote.textContent =
-      state.shiftSource === "monday"
-        ? `Showing open CoLab Calendar shifts for ${windowLabel}.`
-        : "Using preview data until monday is available.";
+    const sourceLabel =
+      state.shiftSource === "d1"
+        ? "D1"
+        : state.shiftSource === "monday+d1"
+          ? "Monday synced to D1"
+          : state.shiftSource === "monday"
+            ? "Monday"
+            : "preview data";
+    shiftSourceNote.textContent = `Showing open CoLab Calendar shifts for ${windowLabel}. Source: ${sourceLabel}.`;
   }
 }
 
@@ -1183,13 +1188,15 @@ async function init() {
   }
 
   await loadMembers();
-  await loadAdminProjects();
-  await loadActivity();
-  await loadVotes();
-  await loadPayments();
-  await loadOrders();
-  await loadProjectEvents();
-  loadShifts();
+  await Promise.all([
+    loadShifts(),
+    loadAdminProjects(),
+    loadActivity(),
+    loadVotes(),
+    loadPayments(),
+    loadOrders(),
+    loadProjectEvents(),
+  ]);
 }
 
 init();
