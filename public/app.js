@@ -440,6 +440,8 @@ async function requestLoginLink(event) {
 }
 
 function renderShifts() {
+  const coveredShiftCount = state.shifts.filter((shift) => shift.isCovered).length;
+
   if (isRetailOnlyMember()) {
     shiftList.innerHTML = "";
     modalShiftList.innerHTML = "";
@@ -480,7 +482,7 @@ function renderShifts() {
           : state.shiftSource === "monday"
             ? "Monday"
             : "preview data";
-    shiftSourceNote.textContent = `Showing open CoLab Calendar shifts for ${windowLabel}. Source: ${sourceLabel}.`;
+    shiftSourceNote.textContent = `Showing open CoLab Calendar shifts for ${windowLabel}. Source: ${sourceLabel}. ${state.shifts.length} loaded, ${coveredShiftCount} filled.`;
   }
 }
 

@@ -692,9 +692,7 @@ async function accessSession(request, env) {
 async function requireAuthenticatedSession(request, env) {
   const sessionToken = cookieValue(request, SESSION_COOKIE);
   if (!sessionToken || !hasD1(env)) {
-    const error = new Error("Sign in with your member email to access the CoLab dashboard.");
-    error.status = 401;
-    throw error;
+    return requireMatchedAccessMember(request, env);
   }
 
   const sessionHash = await sha256(sessionToken);
@@ -707,9 +705,7 @@ async function requireAuthenticatedSession(request, env) {
     .first();
 
   if (!sessionRow?.email) {
-    const error = new Error("Sign in with your member email to access the CoLab dashboard.");
-    error.status = 401;
-    throw error;
+    return requireMatchedAccessMember(request, env);
   }
 
   await env.DB.prepare(
