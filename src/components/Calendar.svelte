@@ -4,8 +4,11 @@
   let bridgeEvents = [];
   let fetchedShiftEvents = [];
   let events = [];
+  let visible = [];
   let filter = "all";
   let monthOffset = 0;
+  let shiftSource = "loading";
+  let shiftError = "";
   let sourceNote = "Loading calendar events...";
 
   const filters = [
@@ -68,14 +71,14 @@
     return fallbackDate.toISOString().slice(0, 10);
   }
 
-  function visibleEvents() {
-    return events
-      .filter((event) => filter === "all" || event.type === filter)
+  function visibleEventsFor(allEvents, currentFilter) {
+    return allEvents
+      .filter((event) => currentFilter === "all" || event.type === currentFilter)
       .sort((a, b) => (a.dateValue || a.date || "").localeCompare(b.dateValue || b.date || ""));
   }
 
-  function calendarModel() {
-    const monthDate = monthRange(monthOffset).date;
+  function calendarModelFor(currentEvents, currentMonthOffset) {
+    const monthDate = monthRange(currentMonthOffset).date;
     const year = monthDate.getUTCFullYear();
     const month = monthDate.getUTCMonth();
     const monthLabel = new Intl.DateTimeFormat("en-US", {
@@ -87,7 +90,7 @@
     const lastDay = new Date(Date.UTC(year, month + 1, 0));
     const leadingBlanks = firstDay.getUTCDay();
     const daysInMonth = lastDay.getUTCDate();
-    const eventMap = visibleEvents().reduce((map, event) => {
+    const eventMap = currentEvents.reduce((map, event) => {
       const key = eventDateKey(event);
       if (!key) return map;
 
@@ -150,16 +153,16 @@
       fetchedShiftEvents = shifts
         .filter((shift) => shift.isCovered)
         .map(shiftToEvent);
-      sourceNote = `${visibleEvents().length} events shown · ${fetchedShiftEvents.length} filled shifts from ${payload.source || "dashboard"}`;
+      shiftSource = payload.source || "dashboard";
+      shiftError = "";
     } catch (error) {
-      sourceNote = error.message;
+      shiftError = error.message;
     }
   }
 
   onMount(() => {
     function handleCalendarData(event) {
       bridgeEvents = event.detail?.events || [];
-      sourceNote = `${visibleEvents().length} events shown`;
     }
 
     window.addEventListener("colab:calendar-data", handleCalendarData);
@@ -178,10 +181,13 @@
     ...bridgeEvents.filter((event) => event.type !== "shift"),
     ...fetchedShiftEvents,
   ];
-  $: model = calendarModel();
-  $: if (events.length && !sourceNote.includes("filled shifts")) {
-    sourceNote = `${visibleEvents().length} events shown`;
-  }
+  $: visible = visibleEventsFor(events, filter);
+  $: model = calendarModelFor(visible, monthOffset);
+  $: sourceNote = shiftError
+    ? shiftError
+    : shiftSource === "loading"
+      ? "Loading calendar events..."
+      : `${visible.length} events shown · ${fetchedShiftEvents.length} filled shifts from ${shiftSource}`;
 </script>
 
 <div class="panel-actions calendar-component-actions">
