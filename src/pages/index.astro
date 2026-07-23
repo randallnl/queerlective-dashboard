@@ -78,8 +78,23 @@ import Calendar from "../components/Calendar.svelte";
           <div class="topbar-actions">
             <div class="access-card" aria-live="polite">
               <span id="access-status">Checking login</span>
-              <strong id="access-email">Cloudflare Zero Trust</strong>
-              <a id="access-logout" href="/cdn-cgi/access/logout">Log out</a>
+              <strong id="access-email">Magic link login</strong>
+              <form class="login-form is-hidden" id="login-form">
+                <label for="login-email">Member email</label>
+                <div>
+                  <input
+                    id="login-email"
+                    name="email"
+                    type="email"
+                    autocomplete="email"
+                    placeholder="you@example.com"
+                    required
+                  />
+                  <button type="submit">Send link</button>
+                </div>
+                <small id="login-note">Use the email on your CoLab member profile.</small>
+              </form>
+              <a id="access-logout" href="/api/auth/logout">Log out</a>
             </div>
             <label class="compact-field" id="member-select-field" for="member-select">
               View as

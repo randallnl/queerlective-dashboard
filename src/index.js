@@ -104,6 +104,9 @@ const COLUMNS = {
 const MEMBER_VISIBLE_LOCATIONS = /board room|colab|community room|gym/i;
 const APPROVED_STATUS = /approved/i;
 const COLAB_SPACE_REQUEST = /queerlective'?s colab space/i;
+const SESSION_COOKIE = "colab_session";
+const MAGIC_LINK_TTL_SECONDS = 15 * 60;
+const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 const MOCK_SHIFTS = [
   {
@@ -449,6 +452,56 @@ function findMemberByEmail(members, email) {
   return members.find((member) => memberEmails(member).includes(email)) || null;
 }
 
+function addSeconds(date, seconds) {
+  const nextDate = new Date(date);
+  nextDate.setUTCSeconds(nextDate.getUTCSeconds() + seconds);
+  return nextDate;
+}
+
+function isoNow() {
+  return new Date().toISOString();
+}
+
+function cookieValue(request, name) {
+  const cookieHeader = request.headers.get("Cookie") || "";
+  const cookies = cookieHeader.split(";").map((cookie) => cookie.trim());
+  const match = cookies.find((cookie) => cookie.startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : "";
+}
+
+function sessionCookie(token, expiresAt) {
+  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Expires=${expiresAt.toUTCString()}`;
+}
+
+function clearSessionCookie() {
+  return `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
+}
+
+function randomToken() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function sha256(value) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function loginUrl(request, token) {
+  const url = new URL(request.url);
+  url.pathname = "/api/auth/verify";
+  url.search = new URLSearchParams({ token }).toString();
+  return url.toString();
+}
+
 function addDays(dateValue, days) {
   if (!dateValue) return "";
 
@@ -499,7 +552,12 @@ function memberEmailRequiredError() {
   return error;
 }
 
-function accessDeniedHtml(email) {
+function accessDeniedHtml(email, status = 403) {
+  const message =
+    status === 401
+      ? email
+      : `${email || "This login"} is not connected to a CoLab member profile. Use the email listed on your CoLab membership or ask an admin to add this email to the members board.`;
+
   return new Response(
     `<!doctype html>
 <html lang="en">
@@ -538,13 +596,13 @@ function accessDeniedHtml(email) {
   <body>
     <main>
       <h1>CoLab member access required</h1>
-      <p>${escapeHtml(email || "This login")} is not connected to a CoLab member profile. Use the email listed on your CoLab membership or ask an admin to add this email to the members board.</p>
-      <p><a href="/cdn-cgi/access/logout">Log out and try another email</a></p>
+      <p>${escapeHtml(message)}</p>
+      <p><a href="/">Return to login</a></p>
     </main>
   </body>
 </html>`,
     {
-      status: 403,
+      status,
       headers: {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store",
@@ -556,6 +614,12 @@ function accessDeniedHtml(email) {
 async function requireMatchedAccessMember(request, env) {
   const session = await accessSession(request, env);
 
+  if (!session.authenticated) {
+    const error = new Error("Sign in with your member email to access the CoLab dashboard.");
+    error.status = 401;
+    throw error;
+  }
+
   if (session.authenticated && !session.member?.memberId) {
     throw memberEmailRequiredError();
   }
@@ -564,9 +628,10 @@ async function requireMatchedAccessMember(request, env) {
 }
 
 async function accessSession(request, env) {
-  const email = accessEmail(request);
+  const sessionToken = cookieValue(request, SESSION_COOKIE);
+  const accessHeaderEmail = accessEmail(request);
 
-  if (!email) {
+  if (!sessionToken && !accessHeaderEmail) {
     return {
       authenticated: false,
       email: "",
@@ -577,7 +642,42 @@ async function accessSession(request, env) {
   }
 
   const members = await listMembers(env);
-  const member = findMemberByEmail(members, email);
+  let email = accessHeaderEmail;
+  let member = null;
+
+  if (sessionToken && hasD1(env)) {
+    const sessionHash = await sha256(sessionToken);
+    const sessionRow = await env.DB.prepare(
+      `SELECT *
+        FROM magic_sessions
+        WHERE session_hash = ? AND expires_at > ?`,
+    )
+      .bind(sessionHash, isoNow())
+      .first();
+
+    if (sessionRow?.email) {
+      email = sessionRow.email;
+      member = members.find((item) => item.memberId === sessionRow.member_id) ||
+        findMemberByEmail(members, email);
+      await env.DB.prepare(
+        "UPDATE magic_sessions SET last_seen_at = ? WHERE session_hash = ?",
+      )
+        .bind(isoNow(), sessionHash)
+        .run();
+    }
+  }
+
+  if (!email) {
+    return {
+      authenticated: false,
+      email: "",
+      member: null,
+      isAdmin: false,
+      canViewAs: false,
+    };
+  }
+
+  member ||= findMemberByEmail(members, email);
   const isAdmin = isAdminMember(member);
 
   return {
@@ -594,10 +694,9 @@ async function authorizeMemberRequest(request, env, requestedMemberId) {
   const cleanRequestedMemberId = String(requestedMemberId || "").trim();
 
   if (!session.authenticated) {
-    return {
-      ...session,
-      memberId: cleanRequestedMemberId,
-    };
+    const error = new Error("Sign in with your member email to access the CoLab dashboard.");
+    error.status = 401;
+    throw error;
   }
 
   if (!session.member?.memberId) {
@@ -2053,6 +2152,161 @@ async function signUpForShift(request, env) {
   });
 }
 
+async function sendMagicLinkEmail(env, email, magicUrl) {
+  if (!env.EMAIL?.send) {
+    throw new Error("Email sending is not configured for this Worker.");
+  }
+
+  const fromEmail = env.LOGIN_FROM_EMAIL || "dashboard@nhciviccommons.com";
+  const fromName = env.LOGIN_FROM_NAME || "Queerlective CoLab";
+  const subject = "Your CoLab dashboard login link";
+  const text = [
+    "Use this link to sign in to the CoLab dashboard:",
+    magicUrl,
+    "",
+    "This link expires in 15 minutes and can only be used once.",
+  ].join("\n");
+  const html = `
+    <p>Use this link to sign in to the CoLab dashboard:</p>
+    <p><a href="${escapeHtml(magicUrl)}">Sign in to CoLab</a></p>
+    <p>This link expires in 15 minutes and can only be used once.</p>
+  `;
+
+  await env.EMAIL.send({
+    to: email,
+    from: { email: fromEmail, name: fromName },
+    subject,
+    text,
+    html,
+  });
+}
+
+async function requestMagicLink(request, env) {
+  if (!hasD1(env)) {
+    return json({ error: "Login storage is not configured." }, { status: 500 });
+  }
+
+  const { email } = await request.json();
+  const cleanEmail = String(email || "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return json({ error: "Enter a valid email address." }, { status: 400 });
+  }
+
+  const members = await listMembers(env);
+  const member = findMemberByEmail(members, cleanEmail);
+  if (!member?.memberId) {
+    return json(
+      { error: "That email is not connected to a CoLab member profile." },
+      { status: 403 },
+    );
+  }
+
+  await env.DB.prepare(
+    "DELETE FROM magic_login_tokens WHERE expires_at <= ? OR used_at != ''",
+  )
+    .bind(isoNow())
+    .run();
+
+  const token = randomToken();
+  const tokenHash = await sha256(token);
+  const expiresAt = addSeconds(new Date(), MAGIC_LINK_TTL_SECONDS).toISOString();
+
+  await env.DB.prepare(
+    `INSERT INTO magic_login_tokens (token_hash, email, expires_at)
+      VALUES (?, ?, ?)`,
+  )
+    .bind(tokenHash, cleanEmail, expiresAt)
+    .run();
+
+  await sendMagicLinkEmail(env, cleanEmail, loginUrl(request, token));
+
+  return json({
+    ok: true,
+    message: "Check your email for a sign-in link.",
+  });
+}
+
+async function verifyMagicLink(request, env) {
+  if (!hasD1(env)) {
+    return json({ error: "Login storage is not configured." }, { status: 500 });
+  }
+
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token") || "";
+  const tokenHash = await sha256(token);
+  const tokenRow = await env.DB.prepare(
+    `SELECT *
+      FROM magic_login_tokens
+      WHERE token_hash = ? AND expires_at > ? AND used_at = ''`,
+  )
+    .bind(tokenHash, isoNow())
+    .first();
+
+  if (!tokenRow?.email) {
+    return accessDeniedHtml("This login link is invalid or expired.", 401);
+  }
+
+  const members = await listMembers(env);
+  const member = findMemberByEmail(members, tokenRow.email);
+  if (!member?.memberId) {
+    return accessDeniedHtml(tokenRow.email, 403);
+  }
+
+  const sessionToken = randomToken();
+  const sessionHash = await sha256(sessionToken);
+  const sessionExpiresAt = addSeconds(new Date(), SESSION_TTL_SECONDS);
+  const now = isoNow();
+
+  await env.DB.batch([
+    env.DB.prepare("UPDATE magic_login_tokens SET used_at = ? WHERE token_hash = ?")
+      .bind(now, tokenHash),
+    env.DB.prepare(
+      `INSERT INTO magic_sessions (
+        session_hash,
+        email,
+        member_id,
+        expires_at,
+        created_at,
+        last_seen_at
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      sessionHash,
+      tokenRow.email,
+      member.memberId,
+      sessionExpiresAt.toISOString(),
+      now,
+      now,
+    ),
+  ]);
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: "/",
+      "Set-Cookie": sessionCookie(sessionToken, sessionExpiresAt),
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+async function logout(request, env) {
+  const sessionToken = cookieValue(request, SESSION_COOKIE);
+  if (sessionToken && hasD1(env)) {
+    await env.DB.prepare("DELETE FROM magic_sessions WHERE session_hash = ?")
+      .bind(await sha256(sessionToken))
+      .run();
+  }
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: "/",
+      "Set-Cookie": clearSessionCookie(),
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
 async function findMember(request, env) {
   const url = new URL(request.url);
   const email = url.searchParams.get("email")?.trim().toLowerCase();
@@ -2062,7 +2316,7 @@ async function findMember(request, env) {
     return json({ error: "Provide email or memberId." }, { status: 400 });
   }
 
-  const session = await accessSession(request, env);
+  const session = await requireMatchedAccessMember(request, env);
   const members = await listMembers(env);
   const match = members.find((item) => {
     const primaryEmail = item.email.toLowerCase();
@@ -2286,9 +2540,12 @@ const apiRoutes = {
   },
   "POST /api/votes": submitVote,
   "POST /api/shifts/signup": signUpForShift,
+  "POST /api/auth/request": requestMagicLink,
+  "GET /api/auth/verify": verifyMagicLink,
+  "GET /api/auth/logout": logout,
   "GET /api/member": findMember,
   "GET /api/session": async (request, env) => {
-    const session = await requireMatchedAccessMember(request, env);
+    const session = await accessSession(request, env);
 
     return json({
       authenticated: session.authenticated,
@@ -2314,13 +2571,7 @@ export default {
     }
 
     if (request.method === "GET" || request.method === "HEAD") {
-      try {
-        await requireMatchedAccessMember(request, env);
-        return env.ASSETS.fetch(request);
-      } catch (error) {
-        if (error.status === 403) return accessDeniedHtml(accessEmail(request));
-        return json({ error: error.message }, { status: error.status || 500 });
-      }
+      return env.ASSETS.fetch(request);
     }
 
     return json({ error: "Not found" }, { status: 404 });

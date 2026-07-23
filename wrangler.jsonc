@@ -14,6 +14,10 @@
     "enabled": true,
     "head_sampling_rate": 1
   },
+  "vars": {
+    "LOGIN_FROM_EMAIL": "dashboard@nhciviccommons.com",
+    "LOGIN_FROM_NAME": "Queerlective CoLab"
+  },
   "d1_databases": [
     {
       "binding": "DB",
@@ -27,6 +31,11 @@
       "binding": "MONDAY_API_TOKEN",
       "store_id": "2b9ec8a0d6d742649ad4d3498815ca54",
       "secret_name": "Central_Monday_API_TOKEN"
+    }
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL"
     }
   ]
 }

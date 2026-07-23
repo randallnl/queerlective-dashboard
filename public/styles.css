@@ -315,6 +315,55 @@ main {
   text-transform: none;
 }
 
+.login-form {
+  display: grid;
+  gap: 7px;
+  margin-top: 6px;
+}
+
+.login-form label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.login-form div {
+  display: flex;
+  gap: 6px;
+}
+
+.login-form input {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 9px;
+}
+
+.login-form button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--teal);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.login-form button:disabled {
+  cursor: wait;
+  opacity: 0.64;
+}
+
+.login-form small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
 .panel-actions {
   display: flex;
   align-items: center;

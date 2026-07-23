@@ -3,8 +3,8 @@ const state = {
     authenticated: false,
     email: "",
     member: null,
-    isAdmin: true,
-    canViewAs: true,
+    isAdmin: false,
+    canViewAs: false,
   },
   members: [],
   selectedMemberId: localStorage.getItem("colabSelectedMemberId") || "",
@@ -66,6 +66,9 @@ const orderNavLink = document.querySelector("#nav-orders");
 const accessStatus = document.querySelector("#access-status");
 const accessEmail = document.querySelector("#access-email");
 const accessLogout = document.querySelector("#access-logout");
+const loginForm = document.querySelector("#login-form");
+const loginEmail = document.querySelector("#login-email");
+const loginNote = document.querySelector("#login-note");
 const projectManagementSection = document.querySelector("#project-management");
 const projectManagementNav = document.querySelector("#nav-project-management");
 const adminProjectList = document.querySelector("#admin-project-list");
@@ -341,10 +344,11 @@ function renderAccessSession() {
   if (!accessStatus || !accessEmail) return;
 
   if (!state.session.authenticated) {
-    accessStatus.textContent = "Local preview";
-    accessEmail.textContent = "Zero Trust login appears after deployment";
+    accessStatus.textContent = "Sign in";
+    accessEmail.textContent = "Send yourself a magic link";
+    loginForm?.classList.remove("is-hidden");
     accessLogout?.classList.add("is-hidden");
-    setAdminVisibility(isAdminSession());
+    setAdminVisibility(false);
     return;
   }
 
@@ -352,6 +356,7 @@ function renderAccessSession() {
   accessEmail.textContent = state.session.member
     ? `${memberName} · ${state.session.email}`
     : state.session.email;
+  loginForm?.classList.add("is-hidden");
   accessLogout?.classList.remove("is-hidden");
   setAdminVisibility(isAdminSession());
 }
@@ -383,12 +388,47 @@ async function loadSession() {
       authenticated: false,
       email: "",
       member: null,
-      isAdmin: true,
-      canViewAs: true,
+      isAdmin: false,
+      canViewAs: false,
     };
   }
 
   renderAccessSession();
+}
+
+async function requestLoginLink(event) {
+  event.preventDefault();
+  const email = loginEmail?.value.trim() || "";
+  if (!email) {
+    loginEmail?.focus();
+    return;
+  }
+
+  const submitButton = loginForm?.querySelector("button");
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "Sending...";
+  }
+  loginNote.textContent = "Checking your member email...";
+
+  try {
+    const response = await fetch("/api/auth/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to send login link.");
+
+    loginNote.textContent = payload.message || "Check your email for a sign-in link.";
+  } catch (error) {
+    loginNote.textContent = error.message;
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = "Send link";
+    }
+  }
 }
 
 function renderShifts() {
@@ -1122,8 +1162,18 @@ document.querySelectorAll("[data-section-link]").forEach((link) => {
   });
 });
 
+loginForm?.addEventListener("submit", requestLoginLink);
+
 async function init() {
   await loadSession();
+  if (!state.session.authenticated) {
+    renderMemberSelect();
+    setShiftVisibility(false);
+    setOrderVisibility(false);
+    renderEvents();
+    return;
+  }
+
   await loadMembers();
   await loadAdminProjects();
   await loadActivity();
