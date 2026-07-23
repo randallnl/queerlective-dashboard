@@ -745,6 +745,39 @@ function normalizeShift(parentItem, subitem) {
   };
 }
 
+function shiftFromD1(row) {
+  return {
+    id: row.id,
+    boardId: row.board_id,
+    parentId: row.parent_id,
+    month: row.month,
+    title: row.title,
+    date: row.date_label,
+    dateValue: row.date_value,
+    time: row.time_label,
+    memberId: row.member_id,
+    person: row.person,
+    coveredBy: row.covered_by,
+    coverageStatus: row.coverage_status || "Open",
+    isCovered: Boolean(row.is_covered),
+    tags: JSON.parse(row.tags_json || "[]"),
+  };
+}
+
+function hasD1(env) {
+  return Boolean(env.DB?.prepare);
+}
+
+function upcomingShifts(shifts) {
+  const today = new Date();
+  const todayValue = today.toISOString().slice(0, 10);
+
+  return shifts
+    .filter((shift) => !shift.dateValue || shift.dateValue >= todayValue)
+    .sort((a, b) => (a.dateValue || "9999-12-31").localeCompare(b.dateValue || "9999-12-31"))
+    .slice(0, 40);
+}
+
 function normalizeMember(item) {
   return {
     itemId: item.id,
@@ -1133,12 +1166,12 @@ function publicMember(member) {
   };
 }
 
-async function listShifts(env) {
+async function listMondayShifts(env) {
   const data = await mondayGraphQL(
     env,
     `query CoLabCalendar($boardIds: [ID!]) {
       boards(ids: $boardIds) {
-        items_page(limit: 12) {
+        items_page(limit: 500) {
           items {
             id
             name
@@ -1162,16 +1195,107 @@ async function listShifts(env) {
   );
 
   const items = data.boards?.[0]?.items_page?.items || [];
-  const today = new Date();
-  const todayValue = today.toISOString().slice(0, 10);
-
   return items
     .flatMap((item) =>
       (item.subitems || []).map((subitem) => normalizeShift(item, subitem)),
     )
-    .filter((shift) => !shift.dateValue || shift.dateValue >= todayValue)
-    .sort((a, b) => (a.dateValue || "9999-12-31").localeCompare(b.dateValue || "9999-12-31"))
-    .slice(0, 40);
+    .sort((a, b) => (a.dateValue || "9999-12-31").localeCompare(b.dateValue || "9999-12-31"));
+}
+
+async function listShiftsFromD1(env) {
+  if (!hasD1(env)) return [];
+
+  const todayValue = new Date().toISOString().slice(0, 10);
+  const result = await env.DB.prepare(
+    `SELECT *
+      FROM colab_shifts
+      WHERE date_value = '' OR date_value >= ?
+      ORDER BY CASE WHEN date_value = '' THEN '9999-12-31' ELSE date_value END
+      LIMIT 40`,
+  )
+    .bind(todayValue)
+    .all();
+
+  return (result.results || []).map(shiftFromD1);
+}
+
+async function replaceShiftsInD1(env, shifts) {
+  if (!hasD1(env)) return;
+
+  const syncedAt = new Date().toISOString();
+  const statements = [
+    env.DB.prepare("DELETE FROM colab_shifts"),
+    ...shifts.map((shift) =>
+      env.DB.prepare(
+        `INSERT INTO colab_shifts (
+          id,
+          board_id,
+          parent_id,
+          month,
+          title,
+          date_label,
+          date_value,
+          time_label,
+          member_id,
+          person,
+          covered_by,
+          coverage_status,
+          is_covered,
+          tags_json,
+          synced_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        shift.id,
+        shift.boardId || "",
+        shift.parentId || "",
+        shift.month || "",
+        shift.title || "",
+        shift.date || "",
+        shift.dateValue || "",
+        shift.time || "",
+        shift.memberId || "",
+        shift.person || "",
+        shift.coveredBy || "",
+        shift.coverageStatus || "Open",
+        shift.isCovered ? 1 : 0,
+        JSON.stringify(shift.tags || []),
+        syncedAt,
+      ),
+    ),
+  ];
+
+  await env.DB.batch(statements);
+}
+
+async function syncShiftsToD1(env) {
+  const shifts = await listMondayShifts(env);
+  await replaceShiftsInD1(env, shifts);
+  return shifts;
+}
+
+async function updateShiftSignupInD1(env, shiftId, memberId, person) {
+  if (!hasD1(env)) return;
+
+  await env.DB.prepare(
+    `UPDATE colab_shifts
+      SET member_id = ?,
+        person = ?,
+        covered_by = ?,
+        coverage_status = 'Covered',
+        is_covered = 1,
+        synced_at = ?
+      WHERE id = ?`,
+  )
+    .bind(memberId, person, shiftCoveredBy(person), new Date().toISOString(), shiftId)
+    .run();
+}
+
+async function listShifts(env) {
+  const d1Shifts = await listShiftsFromD1(env);
+  if (d1Shifts.length) return { source: "d1", shifts: d1Shifts };
+
+  const mondayShifts = await syncShiftsToD1(env);
+  return { source: hasD1(env) ? "monday+d1" : "monday", shifts: upcomingShifts(mondayShifts) };
 }
 
 async function listMembers(env) {
@@ -1916,6 +2040,8 @@ async function signUpForShift(request, env) {
     { idempotencyKey: crypto.randomUUID() },
   );
 
+  await updateShiftSignupInD1(env, cleanShiftId, authorizedMemberId, person);
+
   return json({
     ok: true,
     shiftId: cleanShiftId,
@@ -1983,7 +2109,8 @@ const apiRoutes = {
   "GET /api/shifts": async (_request, env) => {
     try {
       await requireMatchedAccessMember(_request, env);
-      return json({ source: "monday", shifts: await listShifts(env) });
+      const shiftData = await listShifts(env);
+      return json(shiftData);
     } catch (error) {
       if (error.status) return json({ error: error.message }, { status: error.status });
 
@@ -2120,6 +2247,20 @@ const apiRoutes = {
     try {
       await requireAdminSession(request, env);
       return json({ source: "monday", projects: await listAdminProjectRecords(env) });
+    } catch (error) {
+      return json({ error: error.message }, { status: error.status || 500 });
+    }
+  },
+  "POST /api/admin/sync/shifts": async (request, env) => {
+    try {
+      await requireAdminSession(request, env);
+      const shifts = await syncShiftsToD1(env);
+      return json({
+        ok: true,
+        source: "monday+d1",
+        synced: shifts.length,
+        syncedAt: new Date().toISOString(),
+      });
     } catch (error) {
       return json({ error: error.message }, { status: error.status || 500 });
     }
