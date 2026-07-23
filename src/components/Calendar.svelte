@@ -123,6 +123,9 @@
     }
 
     window.addEventListener("colab:calendar-data", handleCalendarData);
+    if (window.__colabCalendarData?.events) {
+      events = window.__colabCalendarData.events;
+    }
     window.dispatchEvent(new CustomEvent("colab:calendar-ready"));
 
     return () => {
@@ -139,7 +142,7 @@
       class="icon-button"
       type="button"
       aria-label="Previous month"
-      on:click={() => (monthOffset -= 1)}
+      onclick={() => (monthOffset -= 1)}
     >
       &lsaquo;
     </button>
@@ -147,12 +150,16 @@
       class="icon-button"
       type="button"
       aria-label="Next month"
-      on:click={() => (monthOffset += 1)}
+      onclick={() => (monthOffset += 1)}
     >
       &rsaquo;
     </button>
   </div>
-  <select bind:value={filter} aria-label="Filter calendar">
+  <select
+    value={filter}
+    aria-label="Filter calendar"
+    onchange={(event) => (filter = event.currentTarget.value)}
+  >
     {#each filters as [value, label]}
       <option value={value}>{label}</option>
     {/each}
@@ -160,7 +167,10 @@
 </div>
 
 <div class="event-list" id="event-list">
-  <div class="calendar-month-label">{model.monthLabel}</div>
+  <div class="calendar-month-label">
+    <span>{model.monthLabel}</span>
+    <small>{visibleEvents().length} events shown</small>
+  </div>
   <div class="calendar-grid" role="grid" aria-label={`${model.monthLabel} calendar`}>
     {#each weekdays as day}
       <div class="calendar-weekday" role="columnheader">{day}</div>

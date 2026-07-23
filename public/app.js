@@ -646,10 +646,18 @@ function renderEvents() {
   });
   const events = [...state.projectEvents, ...filledShiftEvents]
     .sort((a, b) => (a.dateValue || a.date || "").localeCompare(b.dateValue || b.date || ""));
+  const detail = {
+    events,
+    shiftCount: filledShiftEvents.length,
+    projectCount: state.projectEvents.length,
+    updatedAt: new Date().toISOString(),
+  };
+
+  window.__colabCalendarData = detail;
 
   window.dispatchEvent(
     new CustomEvent("colab:calendar-data", {
-      detail: { events },
+      detail,
     }),
   );
 }
@@ -1187,9 +1195,11 @@ async function init() {
     return;
   }
 
+  const shiftsPromise = loadShifts();
   await loadMembers();
+  renderEvents();
   await Promise.all([
-    loadShifts(),
+    shiftsPromise,
     loadAdminProjects(),
     loadActivity(),
     loadVotes(),
