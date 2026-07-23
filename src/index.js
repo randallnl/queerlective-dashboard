@@ -1276,6 +1276,102 @@ function normalizeAdminCommunityItem(item, members = []) {
   };
 }
 
+function safeJsonParse(value, fallback) {
+  if (!value) return fallback;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function projectRecordFromD1(row) {
+  return safeJsonParse(row.record_json, {
+    id: row.id,
+    source: row.source,
+    title: row.title,
+    dateValue: row.date_value,
+    endDateValue: row.end_date_value,
+    displayDate: formatActivityDate(row.date_value),
+    owner: row.owner,
+    status: row.status,
+    location: row.location,
+    resources: [],
+    updates: [],
+    details: {},
+  });
+}
+
+function projectRecordAdminOnly(record) {
+  return record.source === "project" && !MEMBER_VISIBLE_LOCATIONS.test(record.location || "");
+}
+
+function projectRecordToCalendarEvent(record, isAdmin) {
+  if (record.source === "project") {
+    const adminOnly = projectRecordAdminOnly(record);
+    if (adminOnly && !isAdmin) return null;
+
+    return {
+      id: record.id,
+      title: record.title,
+      date: formatShiftDate(record.dateValue, record.title),
+      dateValue: record.dateValue,
+      endDateValue: record.endDateValue,
+      time:
+        record.endDateValue && record.endDateValue !== record.dateValue
+          ? `${formatActivityDate(record.dateValue)} - ${formatActivityDate(record.endDateValue)}`
+          : "Project/Event",
+      type: "project",
+      location: record.location,
+      meta: `${record.location || "Location TBD"}${adminOnly ? " · Admin only" : ""}`,
+      details: record.description || `Location: ${record.location || "TBD"}`,
+      adminOnly,
+      detailUrl: record.detailUrl,
+    };
+  }
+
+  if (record.source === "community") {
+    const submittedAt = record.details?.submittedAt || "";
+    const closesAt = addDays(submittedAt, 48);
+    const organizer = record.details?.projectLead || record.owner || "";
+    const organizerMemberName = record.owner || organizer;
+    const processStatus = record.status || "Pending";
+    const consentStatus = record.details?.consentStatus || "Pending consent";
+    const organizerMeta = organizerMemberName || "Community member";
+
+    return {
+      id: record.id,
+      title: record.title || "Community-led event proposal",
+      date: formatShiftDate(record.dateValue, record.title),
+      dateValue: record.dateValue,
+      endDateValue: record.endDateValue || record.dateValue,
+      time: "Community proposal",
+      type: "community",
+      organizer,
+      organizerEmail: record.details?.projectLeadEmail || "",
+      organizerMemberId: "",
+      organizerMemberName,
+      processStatus,
+      consentStatus,
+      submitDate: submittedAt,
+      displayDate: formatActivityDate(submittedAt),
+      closesAt,
+      closesLabel: closesAt
+        ? `Auto-approves ${formatActivityDate(closesAt)}`
+        : "Consent vote pending",
+      details: record.description,
+      materialsRequest: record.details?.requestedSupportAmount || "",
+      spaceRequested: record.location,
+      submissionId: record.details?.submissionId || record.id,
+      meta: `${consentStatus} · Organized by ${organizerMeta}.`,
+      detailUrl: record.detailUrl,
+    };
+  }
+
+  return null;
+}
+
 function publicMember(member) {
   return {
     itemId: member.itemId,
@@ -1803,6 +1899,17 @@ async function listProjectEvents(env, memberId, members = null) {
   const memberList = members || (cleanMemberId ? await listMembers(env) : []);
   const member = memberList.find((item) => item.memberId === cleanMemberId);
   const isAdmin = isAdminMember(member);
+  const d1Records = (await listProjectEventRecordsFromD1(env)).filter(
+    (record) => record.source === "project",
+  );
+
+  if (d1Records.length) {
+    return d1Records
+      .map((record) => projectRecordToCalendarEvent(record, isAdmin))
+      .filter(Boolean)
+      .filter((event) => event.dateValue)
+      .sort((a, b) => (a.dateValue || "").localeCompare(b.dateValue || ""));
+  }
 
   const data = await mondayGraphQL(
     env,
@@ -1840,14 +1947,38 @@ async function listCalendarEvents(env, memberId) {
   const members = cleanMemberId ? await listMembers(env) : [];
   const member = members.find((item) => item.memberId === cleanMemberId);
   const shouldShowCommunityEvents = !isRetailOnlyMember(member);
+  const isAdmin = isAdminMember(member);
+  const d1Records = await listProjectEventRecordsFromD1(env);
+
+  if (d1Records.length) {
+    const projectEvents = d1Records
+      .filter((record) => record.source === "project")
+      .map((record) => projectRecordToCalendarEvent(record, isAdmin))
+      .filter(Boolean)
+      .filter((event) => event.dateValue);
+    const communityEvents = shouldShowCommunityEvents
+      ? d1Records
+          .filter((record) => record.source === "community")
+          .map((record) => projectRecordToCalendarEvent(record, isAdmin))
+          .filter(Boolean)
+          .filter((event) => event.dateValue)
+      : [];
+    const voteResponses = shouldShowCommunityEvents ? await listVoteResponses(env) : [];
+    const consentAwareCommunityEvents = communityEvents.map((submission) =>
+      applyCommunityConsentStatus(submission, voteResponses),
+    );
+
+    return [...projectEvents, ...consentAwareCommunityEvents].sort((a, b) =>
+      (a.dateValue || "").localeCompare(b.dateValue || ""),
+    );
+  }
+
   const [projectEvents, communityEvents, voteResponses] = await Promise.all([
     listProjectEvents(env, cleanMemberId, members),
     shouldShowCommunityEvents
       ? listCommunityEventSubmissions(env, members)
       : Promise.resolve([]),
-    shouldShowCommunityEvents
-      ? listVoteResponses(env)
-      : Promise.resolve([]),
+    shouldShowCommunityEvents ? listVoteResponses(env) : Promise.resolve([]),
   ]);
   const consentAwareCommunityEvents = communityEvents.map((submission) =>
     applyCommunityConsentStatus(submission, voteResponses),
@@ -1961,7 +2092,61 @@ async function listAdminCommunityItems(env, members = null) {
     .sort((a, b) => (a.dateValue || "9999-12-31").localeCompare(b.dateValue || "9999-12-31"));
 }
 
-async function listAdminProjectRecords(env) {
+async function listProjectEventRecordsFromD1(env) {
+  if (!hasD1(env)) return [];
+
+  const result = await env.DB.prepare(
+    `SELECT *
+      FROM project_event_records
+      ORDER BY CASE WHEN date_value = '' THEN '9999-12-31' ELSE date_value END,
+        title`,
+  )
+    .all();
+
+  return (result.results || []).map(projectRecordFromD1);
+}
+
+async function replaceProjectEventRecordsInD1(env, records) {
+  if (!hasD1(env)) return;
+
+  const syncedAt = new Date().toISOString();
+  const statements = [
+    env.DB.prepare("DELETE FROM project_event_records"),
+    ...records.map((record) =>
+      env.DB.prepare(
+        `INSERT INTO project_event_records (
+          id,
+          source,
+          title,
+          date_value,
+          end_date_value,
+          status,
+          location,
+          owner,
+          admin_only,
+          record_json,
+          synced_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        record.id,
+        record.source,
+        record.title || "",
+        record.dateValue || "",
+        record.endDateValue || "",
+        record.status || "",
+        record.location || "",
+        record.owner || "",
+        projectRecordAdminOnly(record) ? 1 : 0,
+        JSON.stringify(record),
+        syncedAt,
+      ),
+    ),
+  ];
+
+  await env.DB.batch(statements);
+}
+
+async function listMondayAdminProjectRecords(env) {
   const members = await listMembers(env);
   const [projectItems, communityItems] = await Promise.all([
     listAdminProjectItems(env),
@@ -1969,19 +2154,51 @@ async function listAdminProjectRecords(env) {
   ]);
 
   return [...projectItems, ...communityItems]
-    .filter(isUpcomingRecord)
     .sort((a, b) =>
       (a.dateValue || "9999-12-31").localeCompare(b.dateValue || "9999-12-31"),
     );
 }
 
+async function syncProjectEventRecordsToD1(env) {
+  const records = await listMondayAdminProjectRecords(env);
+  await replaceProjectEventRecordsInD1(env, records);
+  return records;
+}
+
+async function listProjectEventRecords(env) {
+  const d1Records = await listProjectEventRecordsFromD1(env);
+  if (d1Records.length) return { source: "d1", records: d1Records };
+
+  const mondayRecords = await syncProjectEventRecordsToD1(env);
+  return {
+    source: hasD1(env) ? "monday+d1" : "monday",
+    records: mondayRecords,
+  };
+}
+
+async function listAdminProjectRecords(env) {
+  const projectData = await listProjectEventRecords(env);
+
+  return {
+    source: projectData.source,
+    projects: projectData.records
+      .filter(isUpcomingRecord)
+      .sort((a, b) =>
+        (a.dateValue || "9999-12-31").localeCompare(b.dateValue || "9999-12-31"),
+      ),
+  };
+}
+
 async function getAdminProjectRecord(env, source, id) {
+  if (source !== "project" && source !== "community") return null;
+
+  const d1Records = await listProjectEventRecordsFromD1(env);
+  if (d1Records.length) {
+    return d1Records.find((record) => record.source === source && record.id === id) || null;
+  }
+
   const records =
-    source === "project"
-      ? await listAdminProjectItems(env)
-      : source === "community"
-        ? await listAdminCommunityItems(env)
-        : [];
+    source === "project" ? await listAdminProjectItems(env) : await listAdminCommunityItems(env);
 
   return records.find((record) => record.id === id) || null;
 }
@@ -2505,7 +2722,11 @@ const apiRoutes = {
 
     try {
       memberId = (await authorizeMemberRequest(request, env, memberId)).memberId;
-      return json({ source: "monday", events: await listCalendarEvents(env, memberId) });
+      const projectData = await listProjectEventRecords(env);
+      return json({
+        source: projectData.source,
+        events: await listCalendarEvents(env, memberId),
+      });
     } catch (error) {
       if (error.status) return json({ error: error.message }, { status: error.status });
 
@@ -2519,7 +2740,26 @@ const apiRoutes = {
   "GET /api/admin/projects": async (request, env) => {
     try {
       await requireAdminSession(request, env);
-      return json({ source: "monday", projects: await listAdminProjectRecords(env) });
+      return json(await listAdminProjectRecords(env));
+    } catch (error) {
+      return json({ error: error.message }, { status: error.status || 500 });
+    }
+  },
+  "POST /api/admin/sync/projects": async (request, env) => {
+    try {
+      await requireAdminSession(request, env);
+      const records = await syncProjectEventRecordsToD1(env);
+      const projectCount = records.filter((record) => record.source === "project").length;
+      const communityCount = records.filter((record) => record.source === "community").length;
+
+      return json({
+        ok: true,
+        source: "monday+d1",
+        synced: records.length,
+        projects: projectCount,
+        communityEvents: communityCount,
+        syncedAt: new Date().toISOString(),
+      });
     } catch (error) {
       return json({ error: error.message }, { status: error.status || 500 });
     }

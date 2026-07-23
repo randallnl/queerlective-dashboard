@@ -16,7 +16,32 @@ import Calendar from "../components/Calendar.svelte";
     />
     <link rel="stylesheet" href="/styles.css" />
   </head>
-  <body>
+  <body class="is-app-loading">
+    <section class="splash-screen" id="app-splash" aria-live="polite">
+      <div class="splash-card">
+        <span class="brand-mark splash-mark">Q</span>
+        <p class="eyebrow" id="splash-kicker">CoLab member portal</p>
+        <h1 id="splash-title">Checking your login</h1>
+        <p id="splash-copy">
+          We are getting your member dashboard ready before showing the workspace.
+        </p>
+        <form class="login-form splash-login-form is-hidden" id="splash-login-form">
+          <label for="splash-login-email">Member email</label>
+          <div>
+            <input
+              id="splash-login-email"
+              name="email"
+              type="email"
+              autocomplete="email"
+              placeholder="you@example.com"
+              required
+            />
+            <button type="submit">Send link</button>
+          </div>
+          <small id="splash-login-note">Use the email on your CoLab member profile.</small>
+        </form>
+      </div>
+    </section>
     <div class="app-shell">
       <aside class="sidebar" aria-label="Main navigation">
         <a class="brand" href="#overview" aria-label="CoLab member portal">
@@ -303,7 +328,12 @@ import Calendar from "../components/Calendar.svelte";
               <p class="eyebrow">Admin tools</p>
               <h2 id="project-management-title">Project management</h2>
             </div>
-            <span class="status-pill" id="project-management-count">Loading</span>
+            <div class="panel-actions">
+              <button class="secondary-action" type="button" id="project-sync-button">
+                Sync D1
+              </button>
+              <span class="status-pill" id="project-management-count">Loading</span>
+            </div>
           </div>
           <div class="admin-filters" aria-label="Project filters">
             <label class="compact-field" for="project-source-filter">

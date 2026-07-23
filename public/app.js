@@ -69,6 +69,11 @@ const accessLogout = document.querySelector("#access-logout");
 const loginForm = document.querySelector("#login-form");
 const loginEmail = document.querySelector("#login-email");
 const loginNote = document.querySelector("#login-note");
+const splashLoginForm = document.querySelector("#splash-login-form");
+const splashLoginEmail = document.querySelector("#splash-login-email");
+const splashTitle = document.querySelector("#splash-title");
+const splashCopy = document.querySelector("#splash-copy");
+const splashKicker = document.querySelector("#splash-kicker");
 const projectManagementSection = document.querySelector("#project-management");
 const projectManagementNav = document.querySelector("#nav-project-management");
 const adminProjectList = document.querySelector("#admin-project-list");
@@ -76,6 +81,7 @@ const projectManagementCount = document.querySelector("#project-management-count
 const projectSourceFilter = document.querySelector("#project-source-filter");
 const projectStatusFilter = document.querySelector("#project-status-filter");
 const projectSearch = document.querySelector("#project-search");
+const projectSyncButton = document.querySelector("#project-sync-button");
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -374,6 +380,36 @@ function setAdminVisibility(isVisible) {
   projectManagementNav?.classList.toggle("is-hidden", !isVisible);
 }
 
+function setAppStage(stage) {
+  document.body.classList.toggle("is-app-loading", stage === "loading");
+  document.body.classList.toggle("is-app-logged-out", stage === "logged-out");
+  document.body.classList.toggle("is-app-ready", stage === "ready");
+
+  if (stage === "loading") {
+    if (splashKicker) splashKicker.textContent = "CoLab member portal";
+    if (splashTitle) splashTitle.textContent = "Checking your login";
+    if (splashCopy) {
+      splashCopy.textContent =
+        "We are getting your member dashboard ready before showing the workspace.";
+    }
+    splashLoginForm?.classList.add("is-hidden");
+  }
+
+  if (stage === "logged-out") {
+    if (splashKicker) splashKicker.textContent = "Member login";
+    if (splashTitle) splashTitle.textContent = "Sign in to CoLab";
+    if (splashCopy) {
+      splashCopy.textContent =
+        "Enter the email connected to your CoLab membership and we will send a secure sign-in link.";
+    }
+    splashLoginForm?.classList.remove("is-hidden");
+  }
+
+  if (stage === "ready") {
+    splashLoginForm?.classList.add("is-hidden");
+  }
+}
+
 async function loadSession() {
   try {
     const response = await fetch("/api/session");
@@ -406,18 +442,21 @@ async function loadSession() {
 
 async function requestLoginLink(event) {
   event.preventDefault();
-  const email = loginEmail?.value.trim() || "";
+  const form = event.currentTarget;
+  const emailInput = form?.querySelector("input[type='email']");
+  const note = form?.querySelector("small") || loginNote;
+  const email = emailInput?.value.trim() || "";
   if (!email) {
-    loginEmail?.focus();
+    emailInput?.focus();
     return;
   }
 
-  const submitButton = loginForm?.querySelector("button");
+  const submitButton = form?.querySelector("button");
   if (submitButton) {
     submitButton.disabled = true;
     submitButton.textContent = "Sending...";
   }
-  loginNote.textContent = "Checking your member email...";
+  note.textContent = "Checking your member email...";
 
   try {
     const response = await fetch("/api/auth/request", {
@@ -428,9 +467,9 @@ async function requestLoginLink(event) {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Unable to send login link.");
 
-    loginNote.textContent = payload.message || "Check your email for a sign-in link.";
+    note.textContent = payload.message || "Check your email for a sign-in link.";
   } catch (error) {
-    loginNote.textContent = error.message;
+    note.textContent = error.message;
   } finally {
     if (submitButton) {
       submitButton.disabled = false;
@@ -813,6 +852,28 @@ async function loadAdminProjects() {
   renderAdminProjects();
 }
 
+async function syncProjectEventsToD1() {
+  if (!isAdminSession() || !projectSyncButton) return;
+
+  projectSyncButton.disabled = true;
+  projectSyncButton.textContent = "Syncing...";
+  if (projectManagementCount) projectManagementCount.textContent = "Syncing";
+
+  try {
+    const response = await fetch("/api/admin/sync/projects", { method: "POST" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to sync projects.");
+
+    projectManagementCount.textContent = `${payload.synced || 0} synced`;
+    await Promise.all([loadAdminProjects(), loadProjectEvents()]);
+  } catch (error) {
+    if (projectManagementCount) projectManagementCount.textContent = error.message;
+  } finally {
+    projectSyncButton.disabled = false;
+    projectSyncButton.textContent = "Sync D1";
+  }
+}
+
 function responseCount(vote, response) {
   return vote.responseCounts?.[response] || 0;
 }
@@ -1172,6 +1233,8 @@ shiftWindow.addEventListener("change", () => {
   control?.addEventListener("change", renderAdminProjects);
 });
 
+projectSyncButton?.addEventListener("click", syncProjectEventsToD1);
+
 window.addEventListener("colab:calendar-ready", () => {
   renderEvents();
 });
@@ -1185,20 +1248,32 @@ document.querySelectorAll("[data-section-link]").forEach((link) => {
   });
 });
 
+splashLoginEmail?.addEventListener("input", () => {
+  if (loginEmail) loginEmail.value = splashLoginEmail.value;
+});
+
+loginEmail?.addEventListener("input", () => {
+  if (splashLoginEmail) splashLoginEmail.value = loginEmail.value;
+});
+
 loginForm?.addEventListener("submit", requestLoginLink);
+splashLoginForm?.addEventListener("submit", requestLoginLink);
 
 async function init() {
+  setAppStage("loading");
   await loadSession();
   if (!state.session.authenticated) {
     renderMemberSelect();
     setShiftVisibility(false);
     setOrderVisibility(false);
     renderEvents();
+    setAppStage("logged-out");
     return;
   }
 
   const shiftsPromise = loadShifts();
   await loadMembers();
+  setAppStage("ready");
   renderEvents();
   await Promise.all([
     shiftsPromise,

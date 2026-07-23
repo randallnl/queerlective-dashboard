@@ -44,6 +44,55 @@ a {
   display: none !important;
 }
 
+body.is-app-loading,
+body.is-app-logged-out {
+  min-height: 100vh;
+}
+
+body.is-app-loading .app-shell,
+body.is-app-logged-out .app-shell {
+  display: none;
+}
+
+body.is-app-ready .splash-screen {
+  display: none;
+}
+
+.splash-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.splash-card {
+  width: min(100%, 560px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(233, 245, 239, 0.92)),
+    #fff;
+  box-shadow: var(--shadow);
+  padding: clamp(24px, 6vw, 44px);
+}
+
+.splash-mark {
+  margin-bottom: 18px;
+}
+
+.splash-card h1 {
+  margin: 0;
+  font-size: clamp(2.2rem, 7vw, 4rem);
+  letter-spacing: 0;
+  line-height: 0.98;
+}
+
+.splash-card p:not(.eyebrow) {
+  color: var(--muted);
+  font-size: 1.04rem;
+  line-height: 1.6;
+}
+
 button,
 select,
 input {
