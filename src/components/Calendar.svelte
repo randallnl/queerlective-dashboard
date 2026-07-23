@@ -1,9 +1,12 @@
 <script>
   import { onMount } from "svelte";
 
+  let bridgeEvents = [];
+  let fetchedShiftEvents = [];
   let events = [];
   let filter = "all";
   let monthOffset = 0;
+  let sourceNote = "Loading calendar events...";
 
   const filters = [
     ["all", "All events"],
@@ -117,15 +120,53 @@
     ].filter(Boolean);
   }
 
+  function shiftPersonName(shift) {
+    if (shift.coveredBy) return shift.coveredBy;
+    if (shift.person) return shift.person.split("|")[0].trim();
+    return shift.memberId || "Member";
+  }
+
+  function shiftToEvent(shift) {
+    const coveredBy = shiftPersonName(shift);
+
+    return {
+      title: "Filled CoLab shift",
+      date: shift.date,
+      dateValue: shift.dateValue,
+      time: shift.time,
+      type: "shift",
+      meta: `${coveredBy} is covering ${shift.title}.`,
+      details: `Coverage status: ${shift.coverageStatus || "Covered"}.`,
+    };
+  }
+
+  async function loadShiftEvents() {
+    try {
+      const response = await fetch("/api/shifts");
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Unable to load shifts.");
+
+      const shifts = payload.shifts || [];
+      fetchedShiftEvents = shifts
+        .filter((shift) => shift.isCovered)
+        .map(shiftToEvent);
+      sourceNote = `${visibleEvents().length} events shown · ${fetchedShiftEvents.length} filled shifts from ${payload.source || "dashboard"}`;
+    } catch (error) {
+      sourceNote = error.message;
+    }
+  }
+
   onMount(() => {
     function handleCalendarData(event) {
-      events = event.detail?.events || [];
+      bridgeEvents = event.detail?.events || [];
+      sourceNote = `${visibleEvents().length} events shown`;
     }
 
     window.addEventListener("colab:calendar-data", handleCalendarData);
     if (window.__colabCalendarData?.events) {
-      events = window.__colabCalendarData.events;
+      bridgeEvents = window.__colabCalendarData.events;
     }
+    loadShiftEvents();
     window.dispatchEvent(new CustomEvent("colab:calendar-ready"));
 
     return () => {
@@ -133,7 +174,14 @@
     };
   });
 
+  $: events = [
+    ...bridgeEvents.filter((event) => event.type !== "shift"),
+    ...fetchedShiftEvents,
+  ];
   $: model = calendarModel();
+  $: if (events.length && !sourceNote.includes("filled shifts")) {
+    sourceNote = `${visibleEvents().length} events shown`;
+  }
 </script>
 
 <div class="panel-actions calendar-component-actions">
@@ -169,7 +217,7 @@
 <div class="event-list" id="event-list">
   <div class="calendar-month-label">
     <span>{model.monthLabel}</span>
-    <small>{visibleEvents().length} events shown</small>
+    <small>{sourceNote}</small>
   </div>
   <div class="calendar-grid" role="grid" aria-label={`${model.monthLabel} calendar`}>
     {#each weekdays as day}
